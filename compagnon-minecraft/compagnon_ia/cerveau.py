@@ -17,15 +17,7 @@ log = logging.getLogger("compagnon")
 # Au-delà de cette attente imposée par Groq, on n'essaie pas de nouveau : on prévient plutôt le joueur.
 ATTENTE_MAX = 12.0
 
-CONSIGNES_TECHNIQUES = """\
-## Comment lire les messages
-- « [Voix] … » : ce que le seigneur te dit au micro (transcription automatique, il peut y avoir des erreurs de mots).
-- « [Chat] … » : ce qu'il t'écrit dans le chat du jeu.
-- « [Événement] … » : un événement détecté dans le journal du jeu (mort, progrès…). Réagis-y.
-- « [Coup d'œil] … » : une capture prise automatiquement pendant qu'il joue, pour un éventuel commentaire spontané.
-La capture d'écran jointe au dernier message montre ce qu'il voit à cet instant. Dans le jeu, son pseudo est {pseudo}.
-
-## Lire la capture d'écran
+GUIDE_ECRAN = """\
 Ce sont des captures de Minecraft Java Edition en Survie, le plus souvent en vue à la première personne. Repères :
 - la petite croix au centre : le bloc ou la créature qu'il vise ;
 - en bas au centre : la barre d'inventaire rapide (9 cases), l'objet en main est dans la case encadrée ; sa main
@@ -41,6 +33,18 @@ croix de visée et la barre d'inventaire sans fenêtre par-dessus, il est en tra
 Indices : couleur du ciel (jour, coucher de soleil, nuit), blocs (sable = désert ou plage, neige, roche sombre =
 grotte profonde, netherrack rouge = Nether, pierre jaune pâle = l'End), torches, créatures (creeper vert tacheté,
 zombie, squelette, araignée, Enderman noir très grand…), constructions du joueur.
+"""
+
+CONSIGNES_TECHNIQUES = """\
+## Comment lire les messages
+- « [Voix] … » : ce que le seigneur te dit au micro (transcription automatique, il peut y avoir des erreurs de mots).
+- « [Chat] … » : ce qu'il t'écrit dans le chat du jeu.
+- « [Événement] … » : un événement détecté dans le journal du jeu (mort, progrès…). Réagis-y.
+- « [Coup d'œil] … » : une capture prise automatiquement pendant qu'il joue, pour un éventuel commentaire spontané.
+La capture d'écran jointe au dernier message montre ce qu'il voit à cet instant. Dans le jeu, son pseudo est {pseudo}.
+
+## Lire la capture d'écran
+{guide_ecran}
 
 ## Format de chaque réponse
 Commence TOUJOURS par une observation brève entre <observation> et </observation> ; elle ne sera pas prononcée.
@@ -55,7 +59,8 @@ avant la nuit."""
 
 
 def construire_systeme(cfg: Config, personnalite: str, chronique: str) -> str:
-    parties = [personnalite.strip(), CONSIGNES_TECHNIQUES.format(pseudo=cfg.pseudo or "inconnu")]
+    parties = [personnalite.strip(),
+               CONSIGNES_TECHNIQUES.format(pseudo=cfg.pseudo or "inconnu", guide_ecran=GUIDE_ECRAN.strip())]
     if chronique.strip():
         parties.append("## Chronique de la partie (ce qui s'est passé jusqu'ici)\n" + chronique.strip())
     return "\n\n".join(parties)

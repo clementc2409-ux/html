@@ -4,7 +4,45 @@
 #  Le texte va entre guillemets "…" ; true/false et les nombres sans guillemets.
 # =====================================================================
 
+[moteur]
+# "gemini" = Gemini Live (conseillé) : il regarde ton écran en continu, t'écoute et te répond
+#            à la voix en direct. Clé gratuite : https://aistudio.google.com/apikey
+# "groq"   = ancien moteur : une capture de temps en temps + Whisper + voix edge-tts.
+choix = "gemini"
+
+
+[gemini]
+# Clé API Gemini. CONSEILLÉ : laisse vide et définis la variable d'environnement
+# GEMINI_API_KEY (voir README). Ne partage jamais ta clé.
+cle_api = ""
+
+# Modèle temps réel (« Live »). Vérifié le 16/10/2026 : "gemini-3.8-live".
+# Liste à jour : python compagnon.py --modeles
+modele = "gemini-3.8-live"
+
+# Voix du compagnon (30 voix au choix). Quelques voix masculines :
+#   "Algenib" (grave, rocailleuse), "Charon" (posée), "Orus" (ferme), "Fenrir" (énergique),
+#   "Puck" (enjouée). Il parle français grâce à ses consignes, quelle que soit la voix.
+voix = "Algenib"
+
+# false = tu parles en maintenant la touche (réglage « touche » plus bas, V par défaut).
+# true  = micro ouvert en permanence : parle quand tu veux, il ne te coupe pas la parole et se
+#         tait quand tu parles. Avec un casque, c'est le plus naturel.
+micro_continu = false
+
+# Images de la fenêtre Minecraft envoyées par seconde (1 au maximum). Seulement quand l'écran change.
+images_par_seconde = 1.0
+
+# Taille des images envoyées et précision de l'analyse ("basse", "moyenne" ou "haute").
+largeur_video = 1024
+resolution_video = "moyenne"
+
+# true = il peut choisir de se taire quand il n'a rien d'intéressant à dire.
+proactivite = true
+
+
 [groq]
+# --- Utilisé seulement avec le moteur "groq" ---
 # Clé API Groq. CONSEILLÉ : laisse vide et définis plutôt la variable
 # d'environnement GROQ_API_KEY (voir README). Si tu la mets ici, ne partage
 # jamais ce fichier et ne le publie pas sur GitHub.
@@ -55,7 +93,7 @@ vocabulaire = "Conversation en français pendant une partie de Minecraft : creep
 
 
 [voix]
-# Voix edge-tts (gratuite). Voix françaises masculines : "fr-FR-HenriNeural",
+# Voix edge-tts (gratuite), seulement avec le moteur "groq" : Gemini a sa propre voix (voir [gemini]). Voix françaises masculines : "fr-FR-HenriNeural",
 # "fr-FR-RemyMultilingualNeural", "fr-CA-AntoineNeural", "fr-CA-ThierryNeural", "fr-BE-GerardNeural".
 voix = "fr-FR-HenriNeural"
 
@@ -63,7 +101,7 @@ voix = "fr-FR-HenriNeural"
 debit = "+5%"
 volume = "+0%"
 
-# Sortie audio : "" = sortie par défaut de Windows (mets ton casque par défaut !),
+# Sortie audio (les deux moteurs) : "" = sortie par défaut de Windows (mets ton casque par défaut !),
 # sinon numéro ou partie du nom (python compagnon.py --peripheriques).
 sortie_audio = ""
 
@@ -81,7 +119,7 @@ mot_cle_chat = "@compagnon"
 
 
 [regard]
-# Commentaires spontanés (il regarde l'écran de lui-même) : true ou false.
+# Commentaires spontanés (il commente de lui-même ce qu'il voit) : true ou false.
 commentaires_spontanes = true
 
 # Une capture toutes les N secondes pour un éventuel commentaire spontané.

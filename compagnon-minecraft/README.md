@@ -1,16 +1,63 @@
 # Compagnon IA vocal pour Minecraft
 
 Un compagnon qui t'accompagne pendant que tu joues à Minecraft en solo. Il **voit ton écran**,
-**t'écoute** quand tu maintiens une touche et **te répond à voix haute**, en français, dans la
-peau d'un vieux routier loyal et moqueur.
+**t'écoute** et **te répond à voix haute**, en français, dans la peau d'un vieux routier loyal et moqueur.
 
-Tout est gratuit :
+Deux moteurs au choix (réglage `[moteur]` de `config.toml`), tous les deux gratuits :
 
-- **Groq** (offre gratuite) pour la transcription de ta voix (Whisper) et pour le modèle qui « voit » l'écran ;
-- **edge-tts** pour la voix (voix neuronales de Microsoft Edge).
+- **Gemini Live** (par défaut, conseillé) : il regarde la fenêtre de Minecraft **en continu**
+  (vidéo, une image par seconde), t'entend et te répond **en direct** avec une voix naturelle.
+  Il voit l'action se dérouler au lieu de photos isolées.
+- **Groq** (ancien moteur) : une capture de temps en temps, transcription Whisper et voix edge-tts.
 
 Le programme tourne sur Windows (il marche aussi sur Mac et Linux). Il **n'interagit jamais avec
 le jeu** : pas de clic, pas de touche simulée. Il regarde et il parle, c'est tout.
+
+---
+
+## 0. Moteur Gemini Live (par défaut)
+
+### Créer ta clé Gemini (gratuite)
+
+1. Va sur <https://aistudio.google.com/apikey> et connecte-toi avec un compte Google.
+2. **Create API key** → copie la clé (elle commence souvent par `AIza…`).
+3. Dans PowerShell : `setx GEMINI_API_KEY "ta_clé"`, puis **ferme et rouvre** le terminal.
+
+### Ce qui se passe pendant que tu joues
+
+- **Il regarde** : la fenêtre de Minecraft est envoyée en continu, une image par seconde au plus,
+  et seulement quand l'écran change (rien n'est envoyé quand le jeu est en pause).
+- **Tu lui parles** : maintiens **V**, parle, relâche. Il répond en une à deux secondes et se tait dès
+  que tu reprends la parole. Avec `micro_continu = true`, plus besoin de touche : parle quand tu veux.
+- **Il réagit au jeu** : morts, progrès et messages `@compagnon` du chat, comme avec l'autre moteur.
+- **Il commente de lui-même** : au plus toutes les 45 s (`cooldown_spontane`), et seulement si l'écran a
+  changé. Il a la consigne de ne parler que s'il voit quelque chose de **nouveau**, et il peut choisir de
+  se taire. S'il commence quand même par « rien à signaler », sa voix est coupée avant que tu l'entendes.
+- **La conversation continue** : Google coupe la connexion toutes les ~10 minutes, le compagnon se
+  reconnecte tout seul et reprend la conversation là où elle en était.
+- Dans la console : `[Moi]` (ce qu'il a compris de ta voix), `[Lui]` (ce qu'il a dit), `[Regard]`, `[Jeu]`.
+
+### Réglages (section `[gemini]` de `config.toml`)
+
+| Réglage | Par défaut | Effet |
+|---|---|---|
+| `modele` | `"gemini-3.8-live"` | Modèle temps réel (vérifié le 16/10/2026). Liste à jour : `python compagnon.py --modeles`. |
+| `voix` | `"Algenib"` | Voix grave et rocailleuse. Autres voix masculines : `Charon` (posée), `Orus` (ferme), `Fenrir` (énergique), `Puck` (enjouée). |
+| `micro_continu` | `false` | `true` = micro toujours ouvert, sans touche. Casque obligatoire. |
+| `images_par_seconde` | `1.0` | Images envoyées par seconde (1 au maximum). |
+| `largeur_video`, `resolution_video` | `1024`, `"moyenne"` | Précision de l'image (`"haute"` = plus de détails, consomme plus). |
+| `proactivite` | `true` | Il peut décider de se taire quand il n'a rien d'intéressant à dire. |
+
+### Limites à connaître
+
+- L'offre gratuite de Google a ses propres quotas (visibles dans AI Studio). Si un quota est atteint,
+  le compagnon le dit dans la console et réessaie un peu plus tard.
+- Avec l'offre **gratuite**, Google peut utiliser les données envoyées (images, voix) pour améliorer ses
+  produits. Ne montre rien de personnel à l'écran pendant que le compagnon tourne.
+- La proactivité utilise la version « v1alpha » de l'API Google. Si elle est refusée, le compagnon se
+  reconnecte automatiquement sans elle.
+
+Pour revenir à l'ancien moteur : `choix = "groq"` dans `[moteur]`, ou `python compagnon.py --moteur groq`.
 
 ---
 
@@ -84,9 +131,16 @@ pip install -r requirements.txt
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, puis réessaie.
 > À chaque nouvelle session, refais seulement `.venv\Scripts\Activate.ps1`.
 
-### d) Enregistrer ta clé Groq
+### d) Enregistrer tes clés
 
-Le plus sûr est de passer par une variable d'environnement, pour que la clé ne soit écrite dans aucun fichier du projet :
+Le plus sûr est de passer par des variables d'environnement, pour que les clés ne soient écrites dans aucun
+fichier du projet. Gemini (moteur par défaut, voir section 0) :
+
+```powershell
+setx GEMINI_API_KEY "ta_cle_gemini"
+```
+
+Groq (seulement si tu utilises l'ancien moteur) :
 
 ```powershell
 setx GROQ_API_KEY "gsk_ta_cle_ici"
@@ -359,6 +413,7 @@ compagnon_ia/
   phrases.py              découpage en phrases, filtres (SILENCE, nettoyage)
   cerveau.py              Groq : Whisper, modèle vision en streaming, mémoire courte, erreurs/429
   budget.py               suivi des jetons, budget des commentaires spontanés
+  live.py                 moteur Gemini Live : vidéo en continu, voix en direct, reconnexion
   journal_jeu.py          lecture en direct de latest.log (morts, progrès, @compagnon)
   boucle.py               chef d'orchestre : tours de parole, priorités, interruptions, regard
 exemples/images/          images d'exemple pour --test (remplace-les par tes captures F2 !)

@@ -6,6 +6,7 @@ import base64
 import io
 import logging
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -62,9 +63,12 @@ class CaptureTest:
     Le dossier est relu à chaque capture : on peut y ajouter ou retirer des images pendant que ça tourne.
     """
 
-    def __init__(self, dossier: Path):
+    def __init__(self, dossier: Path, duree_par_image: float = 0.0):
         self.dossier = dossier
+        self.duree_par_image = duree_par_image  # 0 = image suivante à chaque capture
         self._index = 0
+        self._debut = time.monotonic()
+        self._derniere: str | None = None
 
     def _fichiers(self) -> list[Path]:
         if not self.dossier.is_dir():
@@ -75,9 +79,14 @@ class CaptureTest:
         fichiers = self._fichiers()
         if not fichiers:
             raise FileNotFoundError(f"aucune image dans {self.dossier}")
+        if self.duree_par_image > 0:
+            self._index = int((time.monotonic() - self._debut) / self.duree_par_image)
         fichier = fichiers[self._index % len(fichiers)]
-        self._index += 1
-        log.info("[Test]   image utilisée comme capture : %s", fichier.name)
+        if self.duree_par_image <= 0:
+            self._index += 1
+        if self.duree_par_image <= 0 or fichier.name != self._derniere:
+            log.info("[Test]   image utilisée comme capture : %s", fichier.name)
+        self._derniere = fichier.name
         with Image.open(fichier) as img:
             return img.convert("RGB")
 

@@ -21,6 +21,17 @@ class ErreurConfig(Exception):
 
 @dataclass
 class Config:
+    # [moteur]
+    moteur: str = "gemini"
+    # [gemini]
+    gemini_cle_api: str = ""
+    gemini_modele: str = "gemini-3.8-live"
+    gemini_voix: str = "Algenib"
+    micro_continu: bool = False
+    images_par_seconde: float = 1.0
+    largeur_video: int = 1024
+    resolution_video: str = "moyenne"
+    proactivite: bool = True
     # [groq]
     cle_api: str = ""
     modele_transcription: str = "whisper-large-v3-turbo"
@@ -60,7 +71,12 @@ class Config:
 
 
 # Section du fichier TOML -> clés acceptées.
-SECTIONS: dict[str, tuple[str, ...]] = {
+SECTIONS: dict[str, tuple[str, ...] | dict[str, str]] = {
+    "moteur": {"choix": "moteur"},
+    "gemini": {"cle_api": "gemini_cle_api", "modele": "gemini_modele", "voix": "gemini_voix",
+               "micro_continu": "micro_continu", "images_par_seconde": "images_par_seconde",
+               "largeur_video": "largeur_video", "resolution_video": "resolution_video",
+               "proactivite": "proactivite"},
     "groq": ("cle_api", "modele_transcription", "modele_vision", "effort_raisonnement",
              "temperature", "max_jetons_reponse"),
     "parole": ("touche", "micro", "langue", "vocabulaire"),
@@ -109,14 +125,24 @@ def charger_config(chemin: Path | None = None) -> Config:
         if section not in SECTIONS or not isinstance(contenu, dict):
             log.warning("config.toml : section [%s] inconnue, ignorée.", section)
             continue
+        champs = SECTIONS[section]
+        if not isinstance(champs, dict):
+            champs = {cle: cle for cle in champs}
         for cle, valeur in contenu.items():
-            if cle not in SECTIONS[section]:
+            if cle not in champs:
                 log.warning("config.toml : réglage « %s » inconnu dans [%s], ignoré.", cle, section)
                 continue
-            setattr(cfg, cle, _convertir(cle, valeur, defauts[cle]))
+            setattr(cfg, champs[cle], _convertir(cle, valeur, defauts[champs[cle]]))
 
     if not cfg.cle_api:
         cfg.cle_api = os.environ.get("GROQ_API_KEY", "").strip()
+    if not cfg.gemini_cle_api:
+        cfg.gemini_cle_api = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    cfg.moteur = cfg.moteur.strip().lower()
+    if cfg.moteur not in ("gemini", "groq"):
+        raise ErreurConfig(f"config.toml : moteur « {cfg.moteur} » inconnu (choix possibles : \"gemini\" ou \"groq\").")
+    cfg.images_par_seconde = min(1.0, max(0.1, cfg.images_par_seconde))  # Gemini Live : 1 image/s au plus
+    cfg.largeur_video = max(256, cfg.largeur_video)
     cfg.intervalle_capture = max(3.0, cfg.intervalle_capture)
     cfg.echanges = max(1, cfg.echanges)
     # L'observation de l'écran (non prononcée) passe avant la réponse : il faut de la place pour les deux.

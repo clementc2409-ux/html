@@ -1,3 +1,4 @@
+google-genai>=2.31,<3
 groq>=1.7,<2
 edge-tts>=7.0
 mss>=9.0

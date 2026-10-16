@@ -37,6 +37,8 @@ class Micro:
         self._enregistre = False
         self._verrou = threading.Lock()
         self._flux = None
+        # Appelé (depuis le thread audio) avec chaque bloc de 50 ms : utilisé par le moteur Gemini Live.
+        self.sur_bloc = None
 
     FREQUENCE_VOULUE = 16_000
     # Entrées qui ne sont pas de vrais micros (elles enregistrent le son de l'ordinateur).
@@ -97,6 +99,8 @@ class Micro:
 
     def _rappel(self, donnees, _frames, _temps, _statut) -> None:
         bloc = donnees[:, 0].copy()
+        if self.sur_bloc is not None:
+            self.sur_bloc(bloc)
         with self._verrou:
             if self._enregistre:
                 self._blocs.append(bloc)

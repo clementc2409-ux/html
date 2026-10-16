@@ -1,6 +1,7 @@
 """Compagnon IA vocal pour Minecraft — point d'entrée.
 
-    python compagnon.py                 lance le compagnon
+    python compagnon.py                 lance le compagnon (moteur choisi dans config.toml)
+    python compagnon.py --moteur groq   force un moteur ("gemini" ou "groq")
     python compagnon.py --test          mode test (images d'exemple au lieu de vraies captures)
     python compagnon.py --simuler mort  ajoute une fausse mort au faux journal du mode test
                                         (aussi : progres, chat "ton message")
@@ -54,8 +55,19 @@ def configurer_logs(verbeux: bool) -> None:
     vers_la_file.setFormatter(logging.Formatter("%(message)s"))  # le format final est appliqué par « console »
     logging.basicConfig(level=logging.DEBUG if verbeux else logging.INFO, handlers=[vers_la_file])
     # Les bibliothèques réseau sont bavardes : on ne garde que leurs avertissements.
-    for nom in ("httpx", "httpcore", "groq", "asyncio", "PIL"):
+    for nom in ("httpx", "httpcore", "groq", "asyncio", "PIL", "google_genai", "google", "websockets"):
         logging.getLogger(nom).setLevel(logging.WARNING)
+
+
+def lister_modeles_gemini(cfg) -> None:
+    from google import genai
+
+    client = genai.Client(api_key=cfg.gemini_cle_api)
+    noms = sorted(m.name.removeprefix("models/") for m in client.models.list())
+    print("Modèles Gemini disponibles avec ta clé (ceux avec « live » marchent en temps réel) :")
+    for nom in noms:
+        marque = "  <- configuré" if nom == cfg.gemini_modele else ""
+        print(f"  {'*' if 'live' in nom else ' '} {nom}{marque}")
 
 
 async def lister_modeles(cfg) -> None:
@@ -99,6 +111,7 @@ def main() -> int:
     parser.add_argument("--test", action="store_true",
                         help="images d'exemple au lieu de vraies captures, faux journal du jeu")
     parser.add_argument("--config", type=Path, help="autre fichier de configuration que config.toml")
+    parser.add_argument("--moteur", choices=("gemini", "groq"), help="force le moteur (sinon celui de config.toml)")
     parser.add_argument("--simuler", choices=("mort", "progres", "chat"),
                         help="ajoute une fausse ligne au faux journal du mode test (à lancer dans une 2e console)")
     parser.add_argument("texte", nargs="*", help="avec --simuler chat : le message à écrire")
@@ -119,6 +132,8 @@ def main() -> int:
     except ErreurConfig as e:
         log.error("%s", e)
         return 1
+    if args.moteur:
+        cfg.moteur = args.moteur
     if args.simuler:
         simuler(cfg, args.simuler, " ".join(args.texte))
         return 0
@@ -129,23 +144,36 @@ def main() -> int:
             return asyncio.run(diagnostiquer(cfg))
         except KeyboardInterrupt:
             return 1
-    if not cfg.cle_api:
+    if cfg.moteur == "gemini" and not cfg.gemini_cle_api:
+        log.error("Clé API Gemini manquante. Crée-la sur https://aistudio.google.com/apikey puis tape "
+                  "setx GEMINI_API_KEY \"ta_clé\" et rouvre le terminal (voir README).")
+        return 1
+    if cfg.moteur == "groq" and not cfg.cle_api:
         log.error("Clé API Groq manquante. Définis la variable d'environnement GROQ_API_KEY "
                   "(voir README) ou remplis cle_api dans config.toml.")
         return 1
 
     from compagnon_ia.cerveau import ErreurGroq
+    from compagnon_ia.live import ErreurGemini
 
     try:
         if args.modeles:
-            asyncio.run(lister_modeles(cfg))
+            if cfg.moteur == "gemini":
+                lister_modeles_gemini(cfg)
+            else:
+                asyncio.run(lister_modeles(cfg))
             return 0
-        from compagnon_ia.boucle import Compagnon
+        if cfg.moteur == "gemini":
+            from compagnon_ia.live import CompagnonLive
 
-        asyncio.run(Compagnon(cfg, mode_test=args.test).tourner())
+            asyncio.run(CompagnonLive(cfg, mode_test=args.test).tourner())
+        else:
+            from compagnon_ia.boucle import Compagnon
+
+            asyncio.run(Compagnon(cfg, mode_test=args.test).tourner())
     except KeyboardInterrupt:
         log.info("À plus tard, Seigneur !")
-    except (ErreurConfig, ErreurGroq) as e:
+    except (ErreurConfig, ErreurGroq, ErreurGemini) as e:
         log.error("%s", e)
         return 1
     return 0
