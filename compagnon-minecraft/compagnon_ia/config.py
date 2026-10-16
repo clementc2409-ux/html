@@ -26,8 +26,8 @@ class Config:
     modele_transcription: str = "whisper-large-v3-turbo"
     modele_vision: str = "qwen/qwen3.8-27b"
     effort_raisonnement: str = "none"
-    temperature: float = 0.8
-    max_jetons_reponse: int = 160
+    temperature: float = 0.6
+    max_jetons_reponse: int = 350
     # [parole]
     touche: str = "clavier:v"
     micro: str = ""
@@ -49,8 +49,8 @@ class Config:
     seuil_changement: float = 0.04
     fenetre_minecraft: str = "Minecraft"
     ecran: int = 1
-    largeur_image: int = 768
-    qualite_jpeg: int = 70
+    largeur_image: int = 1280
+    qualite_jpeg: int = 85
     # [memoire]
     echanges: int = 10
     # [budget]
@@ -118,6 +118,8 @@ def charger_config(chemin: Path | None = None) -> Config:
         cfg.cle_api = os.environ.get("GROQ_API_KEY", "").strip()
     cfg.intervalle_capture = max(3.0, cfg.intervalle_capture)
     cfg.echanges = max(1, cfg.echanges)
+    # L'observation de l'écran (non prononcée) passe avant la réponse : il faut de la place pour les deux.
+    cfg.max_jetons_reponse = max(250, cfg.max_jetons_reponse)
     cfg.largeur_image = max(256, cfg.largeur_image)
     cfg.qualite_jpeg = min(95, max(20, cfg.qualite_jpeg))
     return cfg

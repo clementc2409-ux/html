@@ -402,6 +402,9 @@ class Compagnon:
                     for phrase in decoupeur.ajouter(morceau):
                         parole.dire(phrase)
             texte = "".join(morceaux).strip()
+            observation = getattr(self.cerveau, "derniere_observation", "")
+            if observation:
+                log.info("[Vu]     %s", observation)
             if porte is not None:
                 porte.terminer()
             if not texte or est_silence(texte) or (porte is not None and porte.etat):

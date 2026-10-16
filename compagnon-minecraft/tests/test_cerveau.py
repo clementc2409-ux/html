@@ -39,7 +39,8 @@ class FauxGroq:
                 self.reponses_429 -= 1
                 return httpx.Response(429, headers={"retry-after": "0.01"},
                                       json={"error": {"message": "Rate limit reached. Please try again in 10ms."}})
-            corps = "".join([morceau_sse("Oui, "), morceau_sse("il était juste derrière toi. "),
+            corps = "".join([morceau_sse("<observation>Prairie, creeper "), morceau_sse("derrière.</observation>"),
+                             morceau_sse("Oui, "), morceau_sse("il était juste derrière toi. "),
                              morceau_sse("Recule !"),
                              morceau_sse(fin=True, usage={"prompt_tokens": 1200, "completion_tokens": 20,
                                                           "total_tokens": 1220}),
@@ -70,6 +71,7 @@ class TestCerveau(unittest.TestCase):
         cerveau.memoriser("[Voix] Salut", "Salut, Seigneur.")
         morceaux = asyncio.run(lire_tout(cerveau.repondre("[Voix] Tu vois ?", "data:image/jpeg;base64,AAAA")))
         self.assertEqual("".join(morceaux), "Oui, il était juste derrière toi. Recule !")
+        self.assertEqual(cerveau.derniere_observation, "Prairie, creeper derrière.")
         self.assertEqual(cerveau.derniers_jetons, 1220)
         self.assertEqual(cerveau.budget.jetons_jour, 1220)
         self.assertEqual(cerveau.budget.requetes_restantes, 987)
@@ -84,7 +86,18 @@ class TestCerveau(unittest.TestCase):
         self.assertIn("Chapitre 1", messages[0]["content"])
         self.assertIn("Arthur", messages[0]["content"])
         self.assertEqual(messages[1], {"role": "user", "content": "[Voix] Salut"})  # historique en texte seul
-        self.assertEqual(messages[-1]["content"][1]["image_url"]["url"], "data:image/jpeg;base64,AAAA")
+        self.assertEqual(messages[-1]["content"][0]["image_url"]["url"], "data:image/jpeg;base64,AAAA")
+        self.assertEqual(messages[-1]["content"][1]["text"], "[Voix] Tu vois ?")
+        self.assertIn("<observation>", messages[0]["content"])
+        self.assertEqual(corps["max_completion_tokens"], 350)
+
+    def test_reflexion_activee_laisse_de_la_place(self):
+        faux = FauxGroq()
+        cerveau = creer_cerveau(faux, effort_raisonnement="low")
+        asyncio.run(lire_tout(cerveau.repondre("[Voix] Alors ?", None)))
+        corps = json.loads(faux.requetes[-1].content)
+        self.assertEqual((corps["reasoning_effort"], corps["reasoning_format"]), ("low", "hidden"))
+        self.assertEqual(corps["max_completion_tokens"], 350 + 1500)
 
     def test_transcription(self):
         faux = FauxGroq()

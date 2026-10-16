@@ -45,30 +45,37 @@ class DecoupeurPhrases:
 
 
 class FiltreReflexion:
-    """Retire les blocs <think>…</think> si le modèle « réfléchit à voix haute »."""
+    """Retire les passages que le modèle écrit « pour lui » : <think>…</think> (réflexion) et
+    <observation>…</observation> (ce qu'il voit sur la capture). Ils ne sont pas prononcés, mais leur
+    contenu reste disponible dans .masque (affiché dans la console)."""
 
-    OUVRE, FERME = "<think>", "</think>"
+    BALISES = {"<think>": "</think>", "<observation>": "</observation>"}
 
     def __init__(self):
         self._tampon = ""
-        self._dedans = False
+        self._fermeture: str | None = None
+        self.masque = ""
 
     def filtrer(self, texte: str) -> str:
         self._tampon += texte
         sortie: list[str] = []
         while self._tampon:
-            if self._dedans:
-                i = self._tampon.find(self.FERME)
+            if self._fermeture:
+                i = self._tampon.find(self._fermeture)
                 if i < 0:
-                    self._tampon = self._tampon[-len(self.FERME):]
+                    # On garde de quoi reconnaître une balise de fin coupée en deux.
+                    coupe = max(0, len(self._tampon) - len(self._fermeture) + 1)
+                    self.masque += self._tampon[:coupe]
+                    self._tampon = self._tampon[coupe:]
                     break
-                self._tampon = self._tampon[i + len(self.FERME):]
-                self._dedans = False
+                self.masque += self._tampon[:i] + " "
+                self._tampon = self._tampon[i + len(self._fermeture):]
+                self._fermeture = None
             else:
-                i = self._tampon.find(self.OUVRE)
-                if i < 0:
+                trouvees = [(self._tampon.find(o), o) for o in self.BALISES if o in self._tampon]
+                if not trouvees:
                     j = self._tampon.rfind("<")
-                    if j >= 0 and self.OUVRE.startswith(self._tampon[j:]):
+                    if j >= 0 and any(o.startswith(self._tampon[j:]) for o in self.BALISES):
                         # Peut-être le début d'une balise : on attend la suite.
                         sortie.append(self._tampon[:j])
                         self._tampon = self._tampon[j:]
@@ -76,14 +83,20 @@ class FiltreReflexion:
                         sortie.append(self._tampon)
                         self._tampon = ""
                     break
+                i, ouvre = min(trouvees)
                 sortie.append(self._tampon[:i])
-                self._tampon = self._tampon[i + len(self.OUVRE):]
-                self._dedans = True
+                self._tampon = self._tampon[i + len(ouvre):]
+                self._fermeture = self.BALISES[ouvre]
         return "".join(sortie)
 
     def terminer(self) -> str:
-        reste = "" if self._dedans else self._tampon
-        self._tampon, self._dedans = "", False
+        if self._fermeture:  # balise jamais refermée : tout ce qui suit reste caché
+            self.masque += self._tampon
+            reste = ""
+        else:
+            reste = self._tampon
+        self._tampon, self._fermeture = "", None
+        self.masque = " ".join(self.masque.split())
         return reste
 
 

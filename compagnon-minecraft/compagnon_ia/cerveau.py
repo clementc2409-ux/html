@@ -24,7 +24,31 @@ CONSIGNES_TECHNIQUES = """\
 - « [Événement] … » : un événement détecté dans le journal du jeu (mort, progrès…). Réagis-y.
 - « [Coup d'œil] … » : une capture prise automatiquement pendant qu'il joue, pour un éventuel commentaire spontané.
 La capture d'écran jointe au dernier message montre ce qu'il voit à cet instant. Dans le jeu, son pseudo est {pseudo}.
-Réponds toujours en français, en texte brut destiné à être prononcé : pas de liste, pas de markdown, pas d'emoji."""
+
+## Lire la capture d'écran
+Ce sont des captures de Minecraft Java Edition en Survie, le plus souvent en vue à la première personne. Repères :
+- la petite croix au centre : le bloc ou la créature qu'il vise ;
+- en bas au centre : la barre d'inventaire rapide (9 cases), l'objet en main est dans la case encadrée ; sa main
+  et l'objet tenu se voient aussi en bas à droite ;
+- juste au-dessus : la barre verte d'expérience (avec son niveau), puis les cœurs à gauche (sa vie) et les cuisses
+  de poulet à droite (sa faim) ; des icônes d'armure au-dessus des cœurs ; des bulles quand il manque d'air ;
+- en bas à gauche : les messages du chat ; en haut au centre : la vie d'un boss ;
+- écran teinté de rouge avec « Vous êtes mort » / « You Died! » : il est mort ; image floue ou assombrie avec des
+  boutons, ou grande fenêtre grise (inventaire, coffre, four, établi) : un menu.
+Indices : couleur du ciel (jour, coucher de soleil, nuit), blocs (sable = désert ou plage, neige, roche sombre =
+grotte profonde, netherrack rouge = Nether, pierre jaune pâle = l'End), torches, créatures (creeper vert tacheté,
+zombie, squelette, araignée, Enderman noir très grand…), constructions du joueur.
+
+## Format de chaque réponse
+Commence TOUJOURS par une observation brève entre <observation> et </observation> ; elle ne sera pas prononcée.
+Note-y : le lieu, le moment de la journée, ce qu'il tient et ce qu'il vise, sa vie et sa faim si elles sont basses,
+les créatures et dangers visibles, ce qu'il est en train de faire. Seulement ce que tu vois vraiment ; écris
+« incertain » quand tu doutes.
+Ensuite seulement, ta réponse à voix haute (ou SILENCE pour un coup d'œil sans intérêt), en français courant, en
+texte brut destiné à être prononcé : pas de liste, pas de markdown, pas d'emoji.
+Exemple : <observation>Prairie, fin de journée, épée en fer en main, vie pleine, faim à moitié, creeper à quelques
+blocs sur la droite, il construit un mur en pierre.</observation>Creeper sur ta droite, recule ! Et mange un morceau
+avant la nuit."""
 
 
 def construire_systeme(cfg: Config, personnalite: str, chronique: str) -> str:
@@ -104,6 +128,7 @@ class Cerveau:
         self.client = client
         self.historique: deque[dict] = deque(maxlen=2 * cfg.echanges)
         self.derniers_jetons: int | None = None
+        self.derniere_observation = ""
 
     # --- utilitaires -----------------------------------------------------------------------
     async def lister_modeles(self) -> list[str]:
@@ -165,9 +190,10 @@ class Cerveau:
 
     # --- réponses --------------------------------------------------------------------------
     def _messages(self, entree: str, image_url: str | None) -> list[dict]:
-        contenu: list[dict] = [{"type": "text", "text": entree}]
-        if image_url:
+        contenu: list[dict] = []
+        if image_url:  # l'image d'abord, puis la consigne : c'est l'ordre attendu par les modèles Qwen
             contenu.append({"type": "image_url", "image_url": {"url": image_url}})
+        contenu.append({"type": "text", "text": entree})
         return [{"role": "system", "content": self.systeme}, *self.historique,
                 {"role": "user", "content": contenu}]
 
@@ -186,6 +212,8 @@ class Cerveau:
             parametres["reasoning_effort"] = effort
             if effort != "none":
                 parametres["reasoning_format"] = "hidden"
+                # La réflexion compte dans la limite de jetons : on lui laisse de la place.
+                parametres["max_completion_tokens"] += 1500
 
         async def ouvrir():
             brut = await self.client.chat.completions.with_raw_response.create(**parametres)
@@ -213,6 +241,7 @@ class Cerveau:
         finally:
             await flux.close()
             self.derniers_jetons = jetons
+            self.derniere_observation = filtre.masque
             # Flux interrompu avant la fin : on compte une estimation pour rester prudent.
             self.budget.enregistrer(jetons if jetons is not None else int(self.budget.cout_spontane), spontane)
 

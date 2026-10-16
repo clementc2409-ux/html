@@ -39,8 +39,8 @@ s'appliquent à toute ton organisation, pas à chaque clé. Ordres de grandeur p
   **C'est le jeton par jour qui limite** : chaque réponse avec image coûte environ 1 500 à 3 000 jetons.
 - **Images** : 20 Mo maximum par image envoyée par URL. En base64, ce que fait le compagnon, la doc
   historique de Groq indique 4 Mo par requête. Selon le modèle, une requête accepte 3 à 5 images au plus.
-  Le compagnon envoie **une seule** image d'environ 768 px de large en JPEG qualité 70, soit environ
-  50 à 120 Ko : on est très loin de la limite.
+  Le compagnon envoie **une seule** image de 1280 px de large en JPEG qualité 85, soit environ
+  150 à 350 Ko : on est très loin de la limite.
 
 Le compagnon tient compte de ces limites (voir [Budget](#budget-et-limites-groq)).
 
@@ -270,6 +270,30 @@ bureau : plus rien non plus. Si tu le trouves trop bavard, augmente `cooldown_sp
 - Choisis une touche push-to-talk **qui ne sert pas dans le jeu** (V par défaut). Les boutons latéraux de souris
   ne sont pas utilisés par défaut dans Minecraft.
 - La première réponse après le lancement peut être un peu plus lente (connexions à établir).
+
+## Qualité de l'analyse des images
+
+Pour qu'il comprenne mieux ce qu'il voit, le compagnon :
+
+- envoie des captures nettes (1280 px de large, JPEG qualité 85) ;
+- donne au modèle un mode d'emploi de l'écran de Minecraft (vie, faim, objet en main, chat, écran de mort, menus…) ;
+- lui fait d'abord **noter ce qu'il voit**, avant de répondre. Cette observation n'est pas prononcée, mais elle
+  s'affiche dans la console sur une ligne `[Vu]`. Tu sais ainsi ce qu'il a compris de l'image :
+  ```
+  14:02:14  [Vu]     Grotte sombre, pioche en fer en main, vie à 6 cœurs, un squelette au fond à gauche, lave en bas.
+  14:02:14  [Lui]    Squelette au fond, et de la lave juste sous tes pieds : doucement, Seigneur.
+  ```
+
+Pour aller encore plus loin (dans `config.toml`) :
+
+| Réglage | Effet |
+|---|---|
+| `effort_raisonnement = "low"` | Le modèle réfléchit avant de répondre : analyse plus fine, mais 1 à 3 s d'attente en plus et bien plus de jetons. |
+| `largeur_image = 1600` | Encore plus de détails (plus lent, plus de jetons). À l'inverse, `768` est plus économique. |
+| `temperature = 0.4` | Colle encore plus à ce qu'il voit, invente moins (mais réponses moins variées). |
+
+Si un autre modèle vision apparaît dans `python compagnon.py --modeles` (voir aussi
+<https://console.groq.com/docs/vision>), tu peux l'essayer en changeant `modele_vision`.
 
 ## Budget et limites Groq
 

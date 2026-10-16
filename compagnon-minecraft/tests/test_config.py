@@ -24,6 +24,12 @@ class TestConfig(unittest.TestCase):
                 charger_config(fichier)
             self.assertIn("intervalle_capture", str(ctx.exception))
 
+    def test_ancienne_config_trop_courte_relevee(self):
+        with tempfile.TemporaryDirectory() as dossier:
+            fichier = Path(dossier) / "config.toml"
+            fichier.write_text('[groq]\nmax_jetons_reponse = 160\n', encoding="utf-8")
+            self.assertEqual(charger_config(fichier).max_jetons_reponse, 250)
+
     def test_chemin_windows(self):
         with mock.patch.dict(os.environ, {"APPDATA": "/tmp/roaming"}):
             self.assertEqual(developper_chemin(r"%APPDATA%/.minecraft/logs/latest.log"),

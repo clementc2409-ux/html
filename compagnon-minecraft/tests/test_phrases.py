@@ -41,6 +41,25 @@ class TestFiltres(unittest.TestCase):
         morceaux = ["<thi", "nk>je réfléchis", " encore</th", "ink>Salut", " toi"]
         self.assertEqual("".join(f.filtrer(m) for m in morceaux) + f.terminer(), "Salut toi")
 
+    def test_observation_cachee_mais_gardee(self):
+        f = FiltreReflexion()
+        morceaux = ["<observ", "ation>Grotte, lave en", " bas.</obser", "vation>Attention", " à la lave !"]
+        dit = "".join(f.filtrer(m) for m in morceaux) + f.terminer()
+        self.assertEqual(dit, "Attention à la lave !")
+        self.assertEqual(f.masque, "Grotte, lave en bas.")
+
+    def test_observation_jamais_refermee(self):
+        f = FiltreReflexion()
+        dit = f.filtrer("<observation>Prairie, rien de spécial") + f.terminer()
+        self.assertEqual(dit, "")
+        self.assertEqual(f.masque, "Prairie, rien de spécial")
+
+    def test_observation_puis_silence(self):
+        f, p = FiltreReflexion(), PorteSilence()
+        for m in ["<observation>Menu pause.</observation>", "SIL", "ENCE"]:
+            p.ajouter(f.filtrer(m))
+        self.assertTrue(p.etat)
+
     def test_texte_normal_intact(self):
         f = FiltreReflexion()
         self.assertEqual(f.filtrer("3 < 4, bien sûr") + f.terminer(), "3 < 4, bien sûr")

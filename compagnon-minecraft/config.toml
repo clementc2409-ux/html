@@ -22,15 +22,17 @@ modele_vision = "qwen/qwen3.8-27b"
 
 # Réflexion du modèle avant de répondre :
 #   "none" = pas de réflexion (le plus rapide, conseillé pour parler en direct)
-#   "low", "medium", "high" = réfléchit d'abord (plus lent, consomme plus de jetons)
+#   "low", "medium", "high" = réfléchit d'abord : analyse encore plus fine des images,
+#            mais 1 à plusieurs secondes de plus avant qu'il parle, et bien plus de jetons
 #   ""     = ne pas envoyer ce réglage (si tu changes pour un modèle qui ne le connaît pas)
 effort_raisonnement = "none"
 
-# Créativité des réponses (0 = sage et répétitif, 1 = plus varié).
-temperature = 0.8
+# Créativité des réponses (0 = sage, colle à ce qu'il voit ; 1 = plus varié mais invente plus).
+temperature = 0.6
 
-# Longueur maximale d'une réponse, en jetons (~100 jetons ≈ 3 phrases courtes).
-max_jetons_reponse = 160
+# Longueur maximale d'une réponse, en jetons : sa courte observation de l'écran (non prononcée)
+# + sa réponse (~100 jetons ≈ 3 phrases courtes).
+max_jetons_reponse = 350
 
 
 [parole]
@@ -100,9 +102,11 @@ fenetre_minecraft = "Minecraft"
 # Écran à capturer : 1 = écran principal, 2 = deuxième écran…, 0 = tous les écrans.
 ecran = 1
 
-# Taille et qualité des images envoyées (plus petit = plus rapide et moins de jetons).
-largeur_image = 768
-qualite_jpeg = 70
+# Taille et qualité des images envoyées. Plus grand = il voit mieux les détails (créatures au
+# loin, objets en main, vie…), mais un peu plus lent et plus de jetons.
+# 1280/85 = bonne analyse ; 768/70 = économique.
+largeur_image = 1280
+qualite_jpeg = 85
 
 
 [memoire]
