@@ -280,6 +280,12 @@ chaque ligne est renvoyée à chaque requête et consomme des jetons. Exemple :
 
 ## 5. Lancement
 
+**Le plus simple : double-clique sur `lancer.bat`.** La première fois, il crée l'environnement Python et
+installe les bibliothèques tout seul (une ou deux minutes), puis il lance le compagnon. Les fois suivantes,
+il démarre directement. Pas besoin d'activer `.venv` ni de taper de commande.
+
+Ou, depuis PowerShell :
+
 ```powershell
 .venv\Scripts\Activate.ps1
 python compagnon.py
@@ -291,6 +297,7 @@ Commandes utiles :
 |---|---|
 | `python compagnon.py --test` | Mode test : images d'exemple au lieu de vraies captures, faux journal du jeu (pas besoin de Minecraft). |
 | `python compagnon.py --simuler mort` | Ajoute une fausse mort au faux journal du mode test. Aussi : `--simuler progres`, `--simuler chat "ton message"`. |
+| `python compagnon.py --simuler creeper` | Imite le mod pendant 20 s pendant le mode test : un creeper arrive dans ton dos. Aussi : `--simuler blesse`, `--simuler capteur`. |
 | `python compagnon.py --diagnostic` | **Teste chaque maillon** (clé Groq, modèle, voix, micro, touche) et dit quoi corriger. À lancer en premier si quelque chose ne marche pas. |
 | `python compagnon.py --modeles` | Liste les modèles Groq disponibles avec ta clé. |
 | `python compagnon.py --peripheriques` | Liste les micros et sorties audio. |
