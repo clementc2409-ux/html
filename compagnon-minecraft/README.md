@@ -41,8 +41,70 @@ le jeu** : pas de clic, pas de touche simulée. Il regarde et il parle, c'est to
   rappeler tes projets (« tu m'avais parlé du port, on s'y met ? »). Pour lui faire tout oublier, supprime ce fichier.
 - **La conversation continue** : Google coupe la connexion toutes les ~10 minutes, le compagnon se
   reconnecte tout seul et reprend la conversation là où elle en était.
+- **Il tient le carnet du royaume** (projets, quêtes, lieux, rappels) et vérifie les recettes dans le wiki :
+  voir plus bas.
+- **Avec le mod « compagnon »**, il connaît ta vie, ta faim, le biome, l'heure, ce que tu vises et les monstres
+  autour de toi, même dans ton dos, et il te prévient tout de suite d'un danger : voir plus bas.
 - Dans la console : `[Moi]` (ce qu'il a compris de ta voix), `[Lui]` (ce qu'il a dit), `[Regard]`, `[Jeu]`,
-  `[Vidéo]`. Le numéro de version s'affiche au démarrage : vérifie-le après une mise à jour.
+  `[Vidéo]`, `[Capteur]`, `[Alerte]`, `[Carnet]`, `[Rappel]`, `[Wiki]`. Le numéro de version s'affiche au
+  démarrage : vérifie-le après une mise à jour.
+
+### Le mod « compagnon » : il sait exactement ce qui se passe (conseillé)
+
+Sur une image, le modèle devine. Avec ce petit mod Fabric, il **sait**. Deux fois par seconde, le mod écrit
+dans `<dossier du jeu>\compagnon\etat.json` ta vie, ta faim, ton armure, ton niveau, l'air, le feu, ta
+position, la dimension, le biome, l'heure, la météo, les objets en main, les effets, le bloc ou la créature
+visés, le menu ouvert, et les **monstres dans un rayon de 24 blocs** avec leur distance et leur direction
+(devant, derrière, à gauche, à droite). Le mod **ne modifie rien** dans la partie : il lit et il écrit ce fichier, c'est tout.
+
+Ce que ça change :
+- une bande noire « CAPTEUR (infos exactes) » est collée sous chaque image envoyée : il ne se trompe plus sur ta
+  vie, ton biome ou l'objet en main ;
+- **alertes immédiates** : creeper à moins de 8 blocs, monstre dans ton dos, gros dégâts d'un coup (avec la
+  cause), plus que 3 cœurs, faim, noyade, feu, arrivée dans le Nether, coucher du soleil… Il te prévient en
+  une phrase, comme un ami qui crie « attention, derrière toi ! » ;
+- il sait exactement quand un menu est ouvert ou que le jeu est en pause (la vidéo s'arrête alors) ;
+- `noter_lieu` (voir le carnet) enregistre tes vraies coordonnées.
+
+Installation (Minecraft Java **26.3**) :
+1. Installe **Fabric** : télécharge l'installateur sur <https://fabricmc.net/use/installer/>, lance-le,
+   choisis la version **26.3**, clique sur **Install**. Le launcher Minecraft a maintenant un profil
+   « fabric-loader-…-26.3 ».
+2. Télécharge **Fabric API** pour 26.3 sur <https://modrinth.com/mod/fabric-api> (version `0.162.0+26.3` ou
+   plus récente pour 26.3) et mets le fichier `.jar` dans `%APPDATA%\.minecraft\mods\` (crée le dossier
+   `mods` s'il n'existe pas).
+3. Copie `compagnon-minecraft\mod-pret\compagnon-capteur-26.3-1.0.0.jar` dans ce même dossier `mods`.
+4. Lance Minecraft avec le profil **fabric-loader** et entre dans ton monde. Dans la console du compagnon :
+   `[Capteur] mod détecté : il connaît maintenant ta vie, les monstres autour, le biome…`
+
+Le mod est compilé automatiquement par GitHub (code source dans `mod/`). Il ne marche qu'avec Minecraft 26.3 :
+pour une autre version, il faut l'adapter. Sans le mod, tout le reste fonctionne comme avant.
+
+Pour essayer sans Minecraft : lance `python compagnon.py --test`, puis dans une 2e console
+`python compagnon.py --simuler creeper` (un creeper arrive dans ton dos), `--simuler blesse` (des flèches de
+squelette) ou `--simuler capteur` (état normal, pour voir la bande).
+
+### Le carnet du royaume, les quêtes et les rappels
+
+Le compagnon tient lui-même un **carnet du royaume** grâce à des outils que Gemini peut utiliser pendant la
+conversation (la console affiche une ligne `[Carnet]` à chaque fois) :
+- **projets** : « on va construire un port au sud » → il le note, et il te le rappellera plus tard ;
+- **quêtes** : il te propose de temps en temps une quête concrète adaptée à ton avancement (« rapporte 20
+  blocs de quartz pour la salle du trône »). Si tu acceptes, il la note ; quand il voit qu'elle est
+  accomplie, il la coche et te félicite. Pendant les coups d'œil, il garde la quête en tête ;
+- **lieux** : « note ma base ici » → il enregistre le lieu avec tes coordonnées (prises par le mod).
+  Plus tard : « c'était où le village ? » → il te les redonne ;
+- **rappels** : « rappelle-moi dans 10 minutes d'aller replanter les arbres » → 10 minutes plus tard, il te
+  le dit (même si tu as quitté le jeu entre-temps : il te le dira au prochain lancement) ;
+- **wiki** : quand il n'est pas sûr d'une recette ou d'un chiffre, il cherche dans le wiki Minecraft
+  (<https://fr.minecraft.wiki>), gratuitement. La recherche Google, elle, n'est pas incluse dans l'offre
+  gratuite de Gemini.
+
+Tout est gardé dans `carnet.json`, avec une version lisible dans **`carnet.md`** (ouvre-la avec le Bloc-notes).
+Toutes les 15 minutes et quand tu quittes, un petit modèle rapide (`gemini-3.5-flash`) réécrit l'**histoire du
+royaume** à partir de vos souvenirs. Au lancement suivant, le compagnon connaît cette histoire, tes projets,
+tes quêtes et tes lieux. Pour repartir de zéro, supprime `carnet.json`, `carnet.md` et `souvenirs.json`.
+Réglages : section `[carnet]` de `config.toml`.
 
 ### Réglages (section `[gemini]` de `config.toml`)
 
@@ -52,8 +114,13 @@ le jeu** : pas de clic, pas de touche simulée. Il regarde et il parle, c'est to
 | `voix` | `"Algenib"` | Voix grave et rocailleuse. Autres voix masculines : `Charon` (posée), `Orus` (ferme), `Fenrir` (énergique), `Puck` (enjouée). |
 | `micro_continu` | `false` | `true` = micro toujours ouvert, sans touche. Casque obligatoire. |
 | `images_par_seconde` | `1.0` | Images envoyées par seconde (1 au maximum). |
-| `largeur_video`, `resolution_video` | `1024`, `"moyenne"` | Précision de l'image (`"haute"` = plus de détails, consomme plus). |
+| `largeur_video`, `resolution_video` | `1280`, `"auto"` | Précision de l'image. `"auto"` est conseillé : en forçant `"moyenne"`, il disait parfois ne pas voir l'écran. |
+| `bande_capteur` | `true` | Colle la bande « CAPTEUR » sous chaque image (avec le mod). |
 | `proactivite` | `true` | Il peut décider de se taire quand il n'a rien d'intéressant à dire. |
+
+Section `[carnet]` : `outils` (carnet, rappels et wiki, `true`), `quetes` (il propose des quêtes, `true`),
+`wiki` (`true`), `resume_auto` (histoire du royaume résumée automatiquement, `true`), `modele_resume`
+(`"gemini-3.5-flash"`).
 
 ### Limites à connaître
 
@@ -422,9 +489,16 @@ compagnon_ia/
   phrases.py              découpage en phrases, filtres (SILENCE, nettoyage)
   cerveau.py              Groq : Whisper, modèle vision en streaming, mémoire courte, erreurs/429
   budget.py               suivi des jetons, budget des commentaires spontanés
-  live.py                 moteur Gemini Live : vidéo en continu, voix en direct, reconnexion
+  live.py                 moteur Gemini Live : vidéo en continu, voix en direct, reconnexion, outils
+  etat_jeu.py             lecture de l'état exact du jeu (mod), bande « CAPTEUR », alertes, simulation
+  carnet.py               carnet du royaume : projets, quêtes, lieux, rappels, histoire résumée
+  outils.py               outils proposés à Gemini (function calling) et leur exécution
+  wiki.py                 recherche dans fr.minecraft.wiki
+  souvenirs.py            mémoire d'une partie à l'autre (souvenirs.json)
   journal_jeu.py          lecture en direct de latest.log (morts, progrès, @compagnon)
   boucle.py               chef d'orchestre : tours de parole, priorités, interruptions, regard
 exemples/images/          images d'exemple pour --test (remplace-les par tes captures F2 !)
+mod/                      code source du mod Fabric « compagnon » (capteur), compilé par GitHub Actions
+mod-pret/                 le mod compilé (.jar) à copier dans le dossier mods de Minecraft
 tests/                    tests automatiques : python -m unittest
 ```

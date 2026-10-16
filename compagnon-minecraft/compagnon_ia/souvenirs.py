@@ -39,7 +39,7 @@ class Souvenirs:
         texte = _couper(texte, 300)
         if not texte:
             return
-        self.elements.append({"quand": datetime.now().isoformat(timespec="minutes"), "genre": genre, "texte": texte})
+        self.elements.append({"quand": datetime.now().isoformat(timespec="seconds"), "genre": genre, "texte": texte})
         del self.elements[:-self.maximum]
         self._sauver()
 
@@ -55,8 +55,17 @@ class Souvenirs:
 
     def resume(self, nombre: int = 40) -> str:
         """Les derniers souvenirs, une ligne chacun, du plus ancien au plus récent."""
+        return self._lignes(self.elements[-nombre:])
+
+    def depuis(self, quand: str, nombre: int = 150) -> tuple[list[dict], str]:
+        """Souvenirs plus récents que « quand » (date ISO, "" = tous) : (souvenirs, texte en lignes)."""
+        nouveaux = [e for e in self.elements if str(e.get("quand", "")) > quand][-nombre:]
+        return nouveaux, self._lignes(nouveaux)
+
+    @staticmethod
+    def _lignes(elements: list[dict]) -> str:
         lignes = []
-        for e in self.elements[-nombre:]:
+        for e in elements:
             try:
                 quand = datetime.fromisoformat(e["quand"]).strftime("%d/%m %H:%M")
             except (KeyError, ValueError):

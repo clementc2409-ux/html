@@ -12,3 +12,9 @@ souvenirs.tmp
 exemples/faux_etat.json
 mod/build/
 mod/.gradle/
+carnet.json
+carnet.tmp
+carnet.md
+exemples/carnet_test.json
+exemples/carnet_test.tmp
+exemples/carnet_test.md

@@ -67,6 +67,12 @@ class Config:
     qualite_jpeg: int = 85
     # [memoire]
     echanges: int = 10
+    # [carnet]
+    outils: bool = True
+    quetes: bool = True
+    wiki: bool = True
+    resume_auto: bool = True
+    modele_resume: str = "gemini-3.5-flash"
     # [budget]
     jetons_par_jour: int = 200_000
     jetons_spontanes_par_heure: int = 40_000
@@ -87,6 +93,7 @@ SECTIONS: dict[str, tuple[str, ...] | dict[str, str]] = {
     "regard": ("commentaires_spontanes", "intervalle_capture", "cooldown_spontane",
                "seuil_changement", "fenetre_minecraft", "suivre_fenetre", "ecran", "largeur_image", "qualite_jpeg"),
     "memoire": ("echanges",),
+    "carnet": ("outils", "quetes", "wiki", "resume_auto", "modele_resume"),
     "budget": ("jetons_par_jour", "jetons_spontanes_par_heure"),
 }
 

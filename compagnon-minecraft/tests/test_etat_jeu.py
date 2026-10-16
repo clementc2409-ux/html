@@ -102,5 +102,23 @@ class TestAlertes(unittest.TestCase):
         self.assertEqual(Alertes().detecter(etat(), apres), [])
 
 
+class TestSimulation(unittest.TestCase):
+    def test_scenarios_declenchent_les_alertes(self):
+        from compagnon_ia.etat_jeu import SCENARIOS, etat_simule
+
+        for scenario in SCENARIOS:
+            self.assertIn("Vie 18/20", resume(etat_simule(scenario, 0)))
+        a = Alertes()
+        alertes = [x for t in range(0, 20) for x in a.detecter(etat_simule("creeper", t - 1), etat_simule("creeper", t))]
+        self.assertEqual(len(alertes), 1)
+        self.assertIn("Creeper", alertes[0])
+        self.assertIn("derrière lui", alertes[0])
+        a = Alertes()
+        alertes = [x for t in range(0, 20) for x in a.detecter(etat_simule("blesse", t - 1), etat_simule("blesse", t))]
+        self.assertTrue(any("cœurs d'un coup (Squelette)" in x for x in alertes))
+        self.assertTrue(any("plus que 2.5 cœurs" in x for x in alertes))
+        self.assertEqual(Alertes().detecter(etat_simule("capteur", 0), etat_simule("capteur", 10)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

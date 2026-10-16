@@ -6,6 +6,7 @@ import unittest
 import numpy as np
 from google.genai import types
 
+from compagnon_ia.carnet import Carnet
 from compagnon_ia.live import (COUP_D_OEIL, CompagnonLive, PorteSilenceLive, construire_config,
                                construire_consignes, est_silence_parle)
 from compagnon_ia.souvenirs import Souvenirs
@@ -15,18 +16,23 @@ from tests.faux import FausseCapture, FauxLecteur, FauxMicro, config_test
 class FausseSession:
     def __init__(self):
         self.envois = []
+        self.reponses_outils = []
 
     async def send_realtime_input(self, **contenu):
         (cle, valeur), = contenu.items()
         self.envois.append((cle, valeur))
 
+    async def send_tool_response(self, function_responses):
+        self.reponses_outils.extend(function_responses)
+
 
 def creer(**reglages):
     c = CompagnonLive(config_test(**reglages), micro=FauxMicro(), lecteur=FauxLecteur(), capture=FausseCapture(),
-                      client=object(), souvenirs=Souvenirs(None))
+                      client=object(), souvenirs=Souvenirs(None), carnet=Carnet(None))
     c.micro_actif = True
     c.fichier_capture = None
     c.delai_image = 0
+    c.delai_double_image = 0
     c._session = FausseSession()
     return c
 

@@ -20,10 +20,12 @@ import numpy as np
 from . import VERSION
 from .audio import Micro
 from .capture import CaptureEcran, CaptureTest, difference, empreinte, encoder_jpeg, jeu_au_premier_plan
+from .carnet import Carnet, prompt_resume
 from .cerveau import GUIDE_ECRAN
 from .config import RACINE, Config, chemin_etat, chemin_log, lire_texte
 from .etat_jeu import Alertes, CapteurEtat, ajouter_bande
 from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
+from .outils import Outils, declarations
 from .souvenirs import Souvenirs
 from .touches import ToucheParler
 from .voix import Lecteur
@@ -46,6 +48,8 @@ COUP_D_OEIL = ("[Coup d'œil] Regarde l'image la plus récente, elle vient d'arr
 # Temps laissé au modèle pour « voir » la capture fraîche avant de recevoir la question. Mesuré le 16/10/2026 :
 # avec 0 à 0,3 s il répond encore sur l'image précédente, avec 1 s il répond sur la bonne.
 DELAI_IMAGE = 1.0
+PERIODE_RESUME = 15 * 60  # le résumé de l'histoire du royaume est mis à jour toutes les 15 minutes
+PERIODE_RAPPELS = 5.0      # secondes entre deux vérifications des rappels programmés
 
 CONSIGNES_LIVE = """\
 ## Ce que tu reçois
@@ -57,6 +61,7 @@ CONSIGNES_LIVE = """\
   « [Événement] … » : un événement détecté dans le journal du jeu (mort, progrès…). Réagis-y tout de suite.
   « [Chat] … » ou « [Écrit] … » : il t'écrit. Réponds-lui à voix haute.
   « [Coup d'œil] … » : une invitation à commenter ce qui se passe à l'écran.
+  « [Rappel] … » : un rappel que tu avais programmé arrive à échéance. Dis-le-lui tout de suite.
 Dans le jeu, son pseudo est {pseudo}.
 
 ## Commentaires spontanés
@@ -96,9 +101,40 @@ Toujours en français courant, 1 à 2 phrases (3 au maximum). Ne décris pas l'�
 un compagnon qui joue à côté de lui. Si tu n'es pas sûr de ce que tu vois, ne l'invente pas."""
 
 
-def construire_consignes(cfg: Config, personnalite: str, chronique: str, souvenirs: str = "") -> str:
+CONSIGNES_OUTILS = """\
+## Le carnet du royaume et tes outils
+Tu tiens toi-même le carnet du royaume grâce à tes outils (il voit dans sa console ce que tu notes) :
+- noter_projet, terminer_projet : dès qu'un projet est décidé entre vous, ou fini.
+{quetes}- noter_lieu : quand il découvre ou nomme un lieu important (base, village, portail, temple…). Les coordonnées
+  sont prises automatiquement.
+- creer_rappel : quand il te demande de lui rappeler quelque chose, ou pour tenir une promesse (« je te préviens
+  dans 10 minutes pour rentrer avant la nuit »).
+- consulter_carnet : quand il te demande où est un lieu, ce qui reste à faire, où en sont les quêtes.
+{wiki}N'appelle un outil que quand quelque chose de nouveau mérite d'être noté, et ne lis jamais le carnet en entier à
+voix haute : réponds juste à ce qu'il demande."""
+
+CONSIGNES_QUETES = """\
+- ajouter_quete, terminer_quete : propose-lui de temps en temps une quête concrète et vérifiable, adaptée à son
+  avancement et au royaume (« rapporte 20 blocs de quartz pour la salle du trône », « trouve un village et
+  donne-lui un nom »). Quand il accepte, ajoute-la. Quand tu constates qu'elle est accomplie (image, capteur,
+  progrès), termine-la et félicite-le. Une ou deux quêtes en cours à la fois, pas plus.
+"""
+
+CONSIGNES_WIKI = """\
+- chercher_wiki : dès que tu n'es pas certain d'une recette, d'une mécanique ou d'un chiffre (le jeu évolue
+  vite et ta mémoire peut dater). Mieux vaut vérifier que d'inventer.
+"""
+
+
+def construire_consignes(cfg: Config, personnalite: str, chronique: str, souvenirs: str = "",
+                         carnet: str = "") -> str:
     parties = [personnalite.strip(),
                CONSIGNES_LIVE.format(pseudo=cfg.pseudo or "inconnu", guide_ecran=GUIDE_ECRAN.strip())]
+    if cfg.outils:
+        parties.append(CONSIGNES_OUTILS.format(quetes=CONSIGNES_QUETES if cfg.quetes else "",
+                                               wiki=CONSIGNES_WIKI if cfg.wiki else ""))
+    if carnet.strip():
+        parties.append("## Le carnet du royaume (état actuel)\n" + carnet.strip())
     if chronique.strip():
         parties.append("## Chronique de la partie (ce qui s'est passé jusqu'ici)\n" + chronique.strip())
     if souvenirs.strip():
@@ -122,6 +158,8 @@ def construire_config(types, cfg: Config, consignes: str, handle: str | None = N
         # La connexion est coupée toutes les ~10 minutes : on la reprend avec ce « ticket ».
         "session_resumption": types.SessionResumptionConfig(handle=handle),
     }
+    if cfg.outils:  # carnet du royaume, rappels, wiki (vérifié le 16/10/2026 : marche avec gemini-3.8-live)
+        reglages["tools"] = [types.Tool(function_declarations=declarations(types, avec_wiki=cfg.wiki))]
     # Toutes les images envoyées depuis la dernière réponse comptent, pas seulement celles reçues pendant que
     # tu parles (sinon il répondait en regardant de vieilles images).
     entree = {"turn_coverage": types.TurnCoverage.TURN_INCLUDES_ALL_INPUT}
@@ -226,7 +264,7 @@ def creer_client(cle_api: str, avancee: bool):
 
 class CompagnonLive:
     def __init__(self, cfg: Config, *, mode_test: bool = False, micro=None, lecteur=None, capture=None, client=None,
-                 souvenirs: Souvenirs | None = None):
+                 souvenirs: Souvenirs | None = None, carnet: Carnet | None = None):
         self.cfg = cfg
         self.mode_test = mode_test
         if mode_test and not cfg.pseudo:
@@ -238,8 +276,11 @@ class CompagnonLive:
         self._capteur_actif = False
         self._dernier_renvoi_image = float("-inf")
         self.souvenirs = souvenirs if souvenirs is not None else Souvenirs(RACINE / "souvenirs.json")
-        self.consignes = construire_consignes(cfg, lire_texte(RACINE / "personnalite.md"),
-                                              lire_texte(RACINE / "chronique.md"), self.souvenirs.resume())
+        if carnet is None:  # le mode test a son propre carnet, pour ne pas mélanger avec la vraie partie
+            carnet = Carnet(RACINE / ("exemples/carnet_test.json" if mode_test else "carnet.json"))
+        self.carnet = carnet
+        self.outils = Outils(self.carnet, self.capteur, wiki_actif=cfg.wiki)
+        self.consignes = self._construire_consignes()
         self.micro = micro if micro is not None else Micro(cfg.micro)
         self.lecteur = lecteur or Lecteur(cfg.sortie_audio)
         if capture is None:
@@ -281,8 +322,15 @@ class CompagnonLive:
         self._dernier_spontane = float("-inf")
         self._fin_parole = float("-inf")
         self.delai_image = DELAI_IMAGE
+        self.delai_double_image = 0.3
         self._etat_video: str | None = None
         self._images_envoyees = 0
+
+    def _construire_consignes(self) -> str:
+        """Relu à chaque nouvelle conversation : le carnet et les souvenirs ont pu changer."""
+        return construire_consignes(self.cfg, lire_texte(RACINE / "personnalite.md"),
+                                    lire_texte(RACINE / "chronique.md"), self.souvenirs.resume(),
+                                    self.carnet.texte() if self.cfg.outils else "")
 
     # ------------------------------------------------------------------ démarrage / arrêt
     async def tourner(self) -> None:
@@ -296,13 +344,14 @@ class CompagnonLive:
         surveillant = SurveillantLog(self.chemin_log, AnalyseurLog(self.cfg.pseudo, self.cfg.mot_cle_chat),
                                      self._sur_evenement)
         for travail in (surveillant.tourner(), self._boucle_envoi(), self._boucle_video(), self._boucle_regard(),
-                        self._boucle_capteur()):
+                        self._boucle_capteur(), self._boucle_rappels(), self._boucle_resume()):
             self._taches.append(asyncio.create_task(travail))
         self._afficher_accueil()
         try:
             await self._boucle_connexion()
         finally:
             self.arreter()
+            await self._resume_final()
 
     def arreter(self) -> None:
         for tache in self._taches:
@@ -350,6 +399,8 @@ class CompagnonLive:
         log.info("  Vidéo        : %s, %.0f image(s)/s au plus", self.capture.description(), self.cfg.images_par_seconde)
         log.info("  Journal jeu  : %s%s", self.chemin_log, "" if self.chemin_log.exists() else " (pas encore là)")
         log.info("  Souvenirs    : %d souvenir(s) des parties précédentes", len(self.souvenirs.elements))
+        if self.cfg.outils:
+            log.info("  Carnet       : %s (lisible dans carnet.md)", self.carnet.resume_court())
         log.info("  Capteur      : %s", self.capteur.chemin if self.capteur.lire() else
                  f"en attente du mod compagnon ({self.capteur.chemin})")
         if self.cfg.commentaires_spontanes:
@@ -389,6 +440,8 @@ class CompagnonLive:
         while True:
             etablie = False
             try:
+                if self._handle is None:  # nouvelle conversation : consignes avec le carnet à jour
+                    self.consignes = self._construire_consignes()
                 config = construire_config(types, self.cfg, self.consignes, self._handle, self._config_minimale)
                 client = self._client(avancee=self.cfg.proactivite and not self._config_minimale)
                 async with client.aio.live.connect(model=self.cfg.gemini_modele, config=config) as session:
@@ -566,7 +619,7 @@ class CompagnonLive:
         envoye = await self._envoyer_image(image)
         if envoye:
             # Une seconde copie, par sécurité : une image isolée est parfois ignorée par le modèle.
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(self.delai_double_image)
             await self._envoyer_image(image)
             log.info("[Vidéo]  écran capturé et envoyé avec %s", raison)
         elif self._session is None:
@@ -605,6 +658,8 @@ class CompagnonLive:
         reprise = message.session_resumption_update
         if reprise is not None and reprise.resumable and reprise.new_handle:
             self._handle = reprise.new_handle
+        if message.tool_call is not None and message.tool_call.function_calls:
+            self._lancer(self._repondre_outils(message.tool_call.function_calls))
         contenu = message.server_content
         if contenu is None:
             return
@@ -636,6 +691,23 @@ class CompagnonLive:
                     self._audio(donnees)
         if contenu.turn_complete:
             self._fin_de_tour()
+
+    async def _repondre_outils(self, appels) -> None:
+        """Exécute les outils demandés par le modèle (carnet, rappels, wiki) et lui renvoie les résultats."""
+        from google.genai import types
+
+        reponses = []
+        for appel in appels:
+            resultat = await self.outils.executer(appel.name, dict(appel.args or {}))
+            reponses.append(types.FunctionResponse(id=appel.id, name=appel.name, response=resultat))
+        session = self._session
+        if session is None:
+            return
+        try:
+            async with self._verrou_envoi:
+                await session.send_tool_response(function_responses=reponses)
+        except Exception as e:
+            log.debug("[Gemini] réponse d'outil non envoyée : %s", e)
 
     def _audio(self, octets: bytes) -> None:
         if self._pousse:
@@ -770,6 +842,59 @@ class CompagnonLive:
                 self._file_envoi.put_nowait(("texte", f"[Alerte] {alerte}", False, True))
             precedent = etat
 
+    # ------------------------------------------------------------------ carnet : rappels et résumé
+    async def _boucle_rappels(self) -> None:
+        """Les rappels programmés par le compagnon (outil creer_rappel) lui sont envoyés à l'heure dite."""
+        while True:
+            await asyncio.sleep(PERIODE_RAPPELS)
+            if not self.cfg.outils or self._session is None:
+                continue
+            for texte in self.carnet.rappels_echus():
+                log.info("[Rappel] %s", texte)
+                self._fin_parole = time.monotonic()
+                self._file_envoi.put_nowait(("texte", f"[Rappel] C'est le moment de lui rappeler : « {texte} ». "
+                                                      "Dis-le-lui maintenant, naturellement.", False))
+
+    async def _resumer(self) -> bool:
+        """Réécrit le résumé de l'histoire du royaume avec les nouveaux souvenirs (modèle texte rapide)."""
+        nouveaux, texte = self.souvenirs.depuis(self.carnet.donnees.get("resume_jusqu_a", ""))
+        if len(nouveaux) < 3:
+            return False
+        client = self._client(avancee=False)
+        reponse = await client.aio.models.generate_content(
+            model=self.cfg.modele_resume, contents=prompt_resume(self.cfg.pseudo, self.carnet, texte))
+        resume = (getattr(reponse, "text", "") or "").strip()
+        if not resume:
+            return False
+        self.carnet.mettre_resume(resume, str(nouveaux[-1].get("quand", "")))
+        log.info("[Carnet] histoire du royaume mise à jour (%d nouveaux souvenirs résumés)", len(nouveaux))
+        return True
+
+    async def _boucle_resume(self) -> None:
+        while True:
+            await asyncio.sleep(PERIODE_RESUME)
+            if not (self.cfg.outils and self.cfg.resume_auto):
+                continue
+            try:
+                await self._resumer()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("[Carnet] résumé de l'histoire impossible pour l'instant : %s", _court(str(e)))
+
+    async def _resume_final(self) -> None:
+        """À la fermeture : dernier résumé (12 s au plus ; Ctrl+C une 2e fois pour quitter tout de suite)."""
+        if not (self.cfg.outils and self.cfg.resume_auto):
+            return
+        nouveaux, _ = self.souvenirs.depuis(self.carnet.donnees.get("resume_jusqu_a", ""))
+        if len(nouveaux) < 3:
+            return
+        log.info("[Carnet] je note l'histoire de cette partie avant de partir (quelques secondes)…")
+        try:
+            await asyncio.wait_for(self._resumer(), 12)
+        except (Exception, asyncio.CancelledError) as e:
+            log.info("[Carnet] résumé abandonné (%s) : il sera fait la prochaine fois.", type(e).__name__)
+
     # ------------------------------------------------------------------ commentaires spontanés
     def _occupe(self) -> str | None:
         if self._pousse:
@@ -806,7 +931,16 @@ class CompagnonLive:
             self._empreinte_coup_d_oeil = emp
             self._dernier_spontane = time.monotonic()
             log.info("[Regard] coup d'œil")
-            self._file_envoi.put_nowait(("texte", COUP_D_OEIL.format(depuis=self._depuis_dernier_echange()), True))
+            self._file_envoi.put_nowait(("texte", self._texte_coup_d_oeil(), True))
+
+    def _texte_coup_d_oeil(self) -> str:
+        texte = COUP_D_OEIL.format(depuis=self._depuis_dernier_echange())
+        if self.cfg.outils and self.cfg.quetes:
+            quetes = self.carnet.quetes_en_cours()
+            if quetes:
+                texte += " Quête(s) en cours : " + " ; ".join(f"« {q['titre']} » ({q['objectif']})" for q in quetes) \
+                         + ". Si tu vois qu'une quête est accomplie, termine-la et félicite-le."
+        return texte
 
     def _depuis_dernier_echange(self) -> str:
         if self._dernier_echange is None:

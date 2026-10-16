@@ -5,6 +5,8 @@
     python compagnon.py --test          mode test (images d'exemple au lieu de vraies captures)
     python compagnon.py --simuler mort  ajoute une fausse mort au faux journal du mode test
                                         (aussi : progres, chat "ton message")
+    python compagnon.py --simuler creeper  imite le mod pendant 20 s : un creeper arrive dans ton dos
+                                        (aussi : blesse, capteur = état normal)
     python compagnon.py --diagnostic    teste chaque maillon (Groq, voix, micro, touche) et dit quoi corriger
     python compagnon.py --modeles       liste les modèles Groq disponibles avec ta clé
     python compagnon.py --peripheriques liste les micros et sorties audio
@@ -106,14 +108,35 @@ def simuler(cfg, genre: str, texte: str) -> None:
     print(f"Ajouté à {chemin} :\n  {ligne}")
 
 
+def simuler_capteur(scenario: str, duree: float = 20.0) -> None:
+    """Imite le mod « compagnon » pour le mode test : écrit exemples/faux_etat.json 2 fois par seconde."""
+    import json
+    import time
+
+    from compagnon_ia.config import RACINE
+    from compagnon_ia.etat_jeu import etat_simule
+
+    chemin = RACINE / "exemples" / "faux_etat.json"
+    print(f"Simulation du capteur « {scenario} » pendant {duree:.0f} s dans {chemin} (Ctrl+C pour arrêter)…")
+    debut = time.monotonic()
+    try:
+        while (t := time.monotonic() - debut) < duree:
+            chemin.write_text(json.dumps(etat_simule(scenario, t), ensure_ascii=False), encoding="utf-8")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    print("Simulation terminée (le compagnon verra « plus de données du mod » d'ici 5 s).")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compagnon IA vocal pour Minecraft (Groq).")
     parser.add_argument("--test", action="store_true",
                         help="images d'exemple au lieu de vraies captures, faux journal du jeu")
     parser.add_argument("--config", type=Path, help="autre fichier de configuration que config.toml")
     parser.add_argument("--moteur", choices=("gemini", "groq"), help="force le moteur (sinon celui de config.toml)")
-    parser.add_argument("--simuler", choices=("mort", "progres", "chat"),
-                        help="ajoute une fausse ligne au faux journal du mode test (à lancer dans une 2e console)")
+    parser.add_argument("--simuler", choices=("mort", "progres", "chat", "creeper", "blesse", "capteur"),
+                        help="à lancer dans une 2e console pendant le mode test : mort, progres, chat = fausse ligne "
+                             "du journal ; creeper, blesse, capteur = imite le mod pendant 20 s")
     parser.add_argument("texte", nargs="*", help="avec --simuler chat : le message à écrire")
     parser.add_argument("--diagnostic", action="store_true",
                         help="teste la clé Groq, le modèle, la voix, le micro et la touche, et dit quoi corriger")
@@ -134,6 +157,9 @@ def main() -> int:
         return 1
     if args.moteur:
         cfg.moteur = args.moteur
+    if args.simuler in ("creeper", "blesse", "capteur"):
+        simuler_capteur(args.simuler)
+        return 0
     if args.simuler:
         simuler(cfg, args.simuler, " ".join(args.texte))
         return 0

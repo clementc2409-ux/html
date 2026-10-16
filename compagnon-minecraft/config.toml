@@ -167,6 +167,24 @@ qualite_jpeg = 85
 echanges = 10
 
 
+
+[carnet]
+# --- Moteur "gemini" ---
+# true = il tient le carnet du royaume (projets, quêtes, lieux avec coordonnées, rappels) et peut
+# chercher dans le wiki. Le carnet est gardé dans carnet.json (version lisible : carnet.md).
+outils = true
+
+# true = il te propose de temps en temps des quêtes concrètes et les coche quand elles sont faites.
+quetes = true
+
+# true = quand il n'est pas sûr d'une recette ou d'un chiffre, il vérifie sur fr.minecraft.wiki.
+wiki = true
+
+# true = toutes les 15 minutes et à la fermeture, l'histoire du royaume est résumée à partir de vos
+# souvenirs (il la connaît au lancement suivant). Modèle texte rapide utilisé pour ce résumé :
+resume_auto = true
+modele_resume = "gemini-3.5-flash"
+
 [budget]
 # Quota de jetons par jour de ton offre Groq (gratuite : voir console.groq.com/settings/limits).
 # Au-delà de 80 % de ce quota, plus de commentaires spontanés : le reste est gardé pour tes questions.

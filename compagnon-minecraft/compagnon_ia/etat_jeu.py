@@ -247,3 +247,36 @@ class Alertes:
         if niv_a is not None and niv_b is not None and niv_b > niv_a and niv_b % 5 == 0 and self._peut("niveau", 30):
             alertes.append(f"il vient d'atteindre le niveau {niv_b} d'expérience.")
         return alertes
+
+
+# --- Simulation (mode test, sans Minecraft) ----------------------------------------------------------
+
+SCENARIOS = ("capteur", "creeper", "blesse")
+
+
+def etat_simule(scenario: str, t: float) -> dict:
+    """Faux état du jeu à l'instant t (secondes depuis le début de la simulation)."""
+    vie, monstres, evenements = 18.0, [], []
+    if scenario == "creeper" and t >= 3:
+        distance = max(2.5, 14 - 1.5 * (t - 3))  # un creeper s'approche dans son dos
+        monstres.append({"nom": "Creeper", "id": "minecraft:creeper", "distance": round(distance, 1),
+                         "direction": "derrière", "hauteur": "même niveau"})
+    if scenario == "blesse" and t >= 3:
+        vie = 9.0 if t < 8 else 5.0  # flèches d'un squelette
+        evenements.append({"n": 1, "type": "degats", "montant": 9.0, "cause": "Squelette"})
+        if t >= 8:
+            evenements.append({"n": 2, "type": "degats", "montant": 4.0, "cause": "Squelette"})
+        monstres.append({"nom": "Squelette", "id": "minecraft:skeleton", "distance": 11.0, "direction": "à gauche",
+                         "hauteur": "même niveau"})
+    return {
+        "version": 1, "horodatage": int(time.time() * 1000),
+        "joueur": {"nom": "Test", "vie": vie, "vie_max": 20.0, "faim": 15, "saturation": 3.0, "armure": 7,
+                   "niveau": 9, "air": 300, "air_max": 300, "en_feu": False, "sous_eau": False,
+                   "x": 152.5, "y": 71.0, "z": -48.3, "dimension": "minecraft:overworld",
+                   "biome": "Plaines", "lumiere": 15, "main": {"nom": "Épée en fer", "nombre": 1, "usure": 0.2},
+                   "main_secondaire": {"nom": None}, "effets": []},
+        "monde": {"heure": 5000, "jour": 3, "pluie": False, "orage": False},
+        "vise": {"type": "bloc", "nom": "Herbe"},
+        "menu": None, "pause": False,
+        "monstres": monstres, "evenements": evenements,
+    }
