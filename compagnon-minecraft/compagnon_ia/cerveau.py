@@ -33,8 +33,11 @@ Ce sont des captures de Minecraft Java Edition en Survie, le plus souvent en vue
 - juste au-dessus : la barre verte d'expérience (avec son niveau), puis les cœurs à gauche (sa vie) et les cuisses
   de poulet à droite (sa faim) ; des icônes d'armure au-dessus des cœurs ; des bulles quand il manque d'air ;
 - en bas à gauche : les messages du chat ; en haut au centre : la vie d'un boss ;
-- écran teinté de rouge avec « Vous êtes mort » / « You Died! » : il est mort ; image floue ou assombrie avec des
-  boutons, ou grande fenêtre grise (inventaire, coffre, four, établi) : un menu.
+- écran teinté de rouge avec « Vous êtes mort » / « You Died! » : il est mort.
+Un MENU, c'est uniquement quand une interface recouvre le jeu : des boutons rectangulaires avec du texte
+(« Retour au jeu », « Options », « Sauvegarder et quitter »…) ou une grande fenêtre grise avec des cases d'objets
+(inventaire, coffre, four, établi). Une scène sombre (nuit, grotte, sous l'eau) n'est PAS un menu : si tu vois la
+croix de visée et la barre d'inventaire sans fenêtre par-dessus, il est en train de jouer.
 Indices : couleur du ciel (jour, coucher de soleil, nuit), blocs (sable = désert ou plage, neige, roche sombre =
 grotte profonde, netherrack rouge = Nether, pierre jaune pâle = l'End), torches, créatures (creeper vert tacheté,
 zombie, squelette, araignée, Enderman noir très grand…), constructions du joueur.

@@ -6,7 +6,7 @@ from PIL import Image
 
 from compagnon_ia.boucle import Compagnon, Demande
 from compagnon_ia.budget import Budget
-from compagnon_ia.capture import difference, empreinte
+from compagnon_ia.capture import difference, empreinte, est_fenetre_jeu
 from compagnon_ia.cerveau import LimiteGroq
 from tests.faux import FausseCapture, FausseSynthese, FauxCerveau, FauxLecteur, FauxMicro, config_test
 
@@ -18,6 +18,7 @@ def creer(reponses=None, couleurs=(VERT,), **reglages):
     c = Compagnon(config_test(**reglages), cerveau=FauxCerveau(reponses), synthese=FausseSynthese(),
                   lecteur=FauxLecteur(), micro=FauxMicro(), capture=FausseCapture(couleurs))
     c.budget = Budget(0, 1_000_000)  # budget illimité pour ces tests
+    c.fichier_capture = None
     return c
 
 
@@ -134,6 +135,19 @@ class TestBudget(unittest.TestCase):
         self.assertFalse(b.autorise_spontane()[0])
         b.pause_jusqua = time.monotonic() - 1
         self.assertTrue(b.autorise_spontane()[0])
+
+
+class TestFenetreDuJeu(unittest.TestCase):
+    def test_reconnait_le_jeu(self):
+        self.assertTrue(est_fenetre_jeu("Minecraft 1.21.4 - Solo", "GLFW30", "Minecraft"))
+        self.assertTrue(est_fenetre_jeu("Minecraft* 1.21.4", "AutreClasse", "Minecraft"))
+        self.assertTrue(est_fenetre_jeu("All the Mods 9", "GLFW30", ""))  # modpack, motif vide
+
+    def test_ignore_les_fausses_pistes(self):
+        self.assertFalse(est_fenetre_jeu("compagnon-minecraft", "CabinetWClass", "Minecraft"))  # dossier
+        self.assertFalse(est_fenetre_jeu("Minecraft Launcher", "Chrome_WidgetWin_1", "Minecraft"))
+        self.assertFalse(est_fenetre_jeu("Windows PowerShell", "CASCADIA_HOSTING_WINDOW_CLASS", "Minecraft"))
+        self.assertFalse(est_fenetre_jeu("Autre jeu GLFW", "GLFW30", "Minecraft"))
 
 
 class TestComparaison(unittest.TestCase):

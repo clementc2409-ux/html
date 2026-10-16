@@ -95,11 +95,17 @@ cooldown_spontane = 45
 # 0.04 = 4 % : un écran figé (jeu en pause) n'est pas envoyé.
 seuil_changement = 0.04
 
-# Pas de commentaire spontané si la fenêtre au premier plan ne contient pas ce texte
-# dans son titre (ex. quand tu es sur le bureau). "" = ne pas vérifier.
+# Titre de la fenêtre du jeu (il commence par « Minecraft »). Sert à capturer seulement
+# la fenêtre du jeu, et à ne pas faire de commentaire spontané quand tu es ailleurs
+# (bureau, Discord…). Si ton modpack change le titre de la fenêtre, mets "".
 fenetre_minecraft = "Minecraft"
 
-# Écran à capturer : 1 = écran principal, 2 = deuxième écran…, 0 = tous les écrans.
+# true = capturer seulement la fenêtre de Minecraft (conseillé : pas de bureau ni de
+# barre des tâches autour, et marche sur n'importe quel écran).
+# false = toujours capturer l'écran entier choisi ci-dessous.
+suivre_fenetre = true
+
+# Écran à capturer si la fenêtre du jeu n'est pas trouvée : 1 = écran principal, 2 = deuxième écran…
 ecran = 1
 
 # Taille et qualité des images envoyées. Plus grand = il voit mieux les détails (créatures au

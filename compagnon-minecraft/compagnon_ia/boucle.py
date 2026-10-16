@@ -8,12 +8,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PIL import Image
 
 from .audio import Micro, encoder_flac, niveau_crete
 from .budget import Budget
-from .capture import CaptureEcran, CaptureTest, difference, empreinte, jeu_au_premier_plan, preparer_image
+from .capture import CaptureEcran, CaptureTest, difference, empreinte, encoder_jpeg, jeu_au_premier_plan, url_data
 from .cerveau import Cerveau, ErreurGroq, LimiteGroq, charger_systeme
 from .config import RACINE, Config, chemin_log
 from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
@@ -47,8 +48,8 @@ def formuler(demande: Demande) -> str:
     if demande.genre == "evenement":
         return f"[Événement] {demande.texte}"
     return ("[Coup d'œil] Capture automatique pendant qu'il joue. Réagis seulement si ça vaut vraiment "
-            "le coup et sans te répéter ; sinon réponds exactement SILENCE. Si la capture montre un menu "
-            "(pause, inventaire, options) ou un écran de chargement, réponds SILENCE.")
+            "le coup et sans te répéter ; sinon réponds exactement SILENCE. Si un menu recouvre clairement "
+            "le jeu (boutons ou fenêtre d'inventaire) ou si c'est un écran de chargement, réponds SILENCE.")
 
 
 class Compagnon:
@@ -66,9 +67,12 @@ class Compagnon:
         self.lecteur = lecteur or Lecteur(cfg.sortie_audio)
         self.micro = micro if micro is not None else Micro(cfg.micro)
         if capture is None:
-            capture = CaptureTest(RACINE / "exemples" / "images") if mode_test else CaptureEcran(cfg.ecran)
+            capture = (CaptureTest(RACINE / "exemples" / "images") if mode_test
+                       else CaptureEcran(cfg.ecran, cfg.fenetre_minecraft, cfg.suivre_fenetre))
         self.capture = capture
         self.touche: ToucheParler | None = None
+        # Copie de la dernière image envoyée au modèle, pour vérifier ce qu'il a vu.
+        self.fichier_capture: Path | None = RACINE / "derniere_capture.jpg"
         self.micro_actif = False
         self.erreur_micro = ""
 
@@ -376,7 +380,7 @@ class Compagnon:
         image_url = None
         if image is not None:
             self._derniere_empreinte = empreinte(image)
-            image_url = await asyncio.to_thread(preparer_image, image, self.cfg.largeur_image, self.cfg.qualite_jpeg)
+            image_url = await asyncio.to_thread(self._preparer_image, image)
         entree = formuler(demande)
         t0 = demande.t0
 
@@ -445,6 +449,13 @@ class Compagnon:
             parole.annuler()
             if a_parle:
                 self._fin_parole = time.monotonic()
+
+    def _preparer_image(self, image: Image.Image) -> str:
+        jpeg = encoder_jpeg(image, self.cfg.largeur_image, self.cfg.qualite_jpeg)
+        if self.fichier_capture is not None:
+            with contextlib.suppress(OSError):
+                self.fichier_capture.write_bytes(jpeg)
+        return url_data(jpeg)
 
     @staticmethod
     def _message_limite(attente: float | None) -> str:

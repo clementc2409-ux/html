@@ -12,7 +12,7 @@ from PIL import Image
 
 from .audio import Micro, encoder_flac, niveau_crete
 from .budget import Budget
-from .capture import EXTENSIONS_IMAGES, preparer_image
+from .capture import EXTENSIONS_IMAGES, CaptureEcran, encoder_jpeg, preparer_image
 from .cerveau import Cerveau
 from .config import RACINE, Config
 from .touches import analyser_touche
@@ -47,7 +47,7 @@ def nom_peripherique(peripherique, genre: str) -> str:
 
 
 async def tester_groq(cfg: Config) -> Cerveau | None:
-    titre("1/5  Clé API et modèles Groq")
+    titre("1/6  Clé API et modèles Groq")
     if not cfg.cle_api:
         probleme("aucune clé API trouvée",
                  "tape setx GROQ_API_KEY \"gsk_...\" puis FERME et rouvre le terminal (ou remplis cle_api).")
@@ -69,18 +69,42 @@ async def tester_groq(cfg: Config) -> Cerveau | None:
     return cerveau
 
 
-async def tester_vision(cfg: Config, cerveau: Cerveau) -> None:
-    titre("2/5  Réponse du modèle avec une image")
-    images = sorted(p for p in (RACINE / "exemples" / "images").glob("*") if p.suffix.lower() in EXTENSIONS_IMAGES)
-    image = Image.open(images[0]).convert("RGB") if images else Image.new("RGB", (768, 432), (90, 160, 60))
+def tester_capture(cfg: Config) -> Image.Image | None:
+    titre("2/6  Capture d'écran")
+    capture = CaptureEcran(cfg.ecran, cfg.fenetre_minecraft, cfg.suivre_fenetre)
+    try:
+        image = capture.capturer()
+    except Exception as e:
+        probleme(f"capture impossible : {e}")
+        return None
+    fichier = RACINE / "derniere_capture.jpg"
+    fichier.write_bytes(encoder_jpeg(image, cfg.largeur_image, cfg.qualite_jpeg))
+    source = capture._derniere_source or "?"
+    if source.startswith("fenêtre"):
+        ok(f"capture de la {source}")
+    else:
+        print(f"  ... fenêtre de Minecraft non trouvée : capture de l'{source} entier "
+              "(lance Minecraft avant le diagnostic pour tester la vraie capture)")
+    ok(f"image enregistrée dans {fichier.name} : ouvre-la pour voir exactement ce que le compagnon voit")
+    return image
+
+
+async def tester_vision(cfg: Config, cerveau: Cerveau, image: Image.Image | None) -> None:
+    titre("3/6  Ce que le modèle comprend de la capture")
+    if image is None:
+        images = sorted(p for p in (RACINE / "exemples" / "images").glob("*") if p.suffix.lower() in EXTENSIONS_IMAGES)
+        image = Image.open(images[0]).convert("RGB") if images else Image.new("RGB", (768, 432), (90, 160, 60))
     debut = time.perf_counter()
     try:
-        flux = cerveau.repondre("[Voix] Dis-moi en quelques mots ce que tu vois.", preparer_image(image))
+        flux = cerveau.repondre("[Voix] Dis-moi en quelques mots ce que tu vois.",
+                                preparer_image(image, cfg.largeur_image, cfg.qualite_jpeg))
         async with contextlib.aclosing(flux) as flux:
             texte = "".join([m async for m in flux]).strip()
     except Exception as e:
         probleme(f"le modèle n'a pas répondu : {e}")
         return
+    if cerveau.derniere_observation:
+        ok(f"il a vu : « {cerveau.derniere_observation} »")
     if texte:
         ok(f"réponse en {time.perf_counter() - debut:.1f} s : « {texte} »")
     else:
@@ -88,7 +112,7 @@ async def tester_vision(cfg: Config, cerveau: Cerveau) -> None:
 
 
 async def tester_voix(cfg: Config) -> None:
-    titre("3/5  Voix (edge-tts) et casque / haut-parleurs")
+    titre("4/6  Voix (edge-tts) et casque / haut-parleurs")
     synthese = Synthese(cfg.voix, cfg.debit, cfg.volume)
     try:
         pcm = await synthese.synthetiser("Bonjour Seigneur. Si tu m'entends, la voix fonctionne.")
@@ -118,7 +142,7 @@ async def tester_voix(cfg: Config) -> None:
 
 
 async def tester_micro(cfg: Config, cerveau: Cerveau | None) -> None:
-    titre("4/5  Micro")
+    titre("5/6  Micro")
     micro = Micro(cfg.micro)
     try:
         micro.demarrer()
@@ -158,7 +182,7 @@ async def tester_micro(cfg: Config, cerveau: Cerveau | None) -> None:
 
 
 def tester_touche(cfg: Config) -> None:
-    titre("5/5  Touche push-to-talk")
+    titre("6/6  Touche push-to-talk")
     try:
         genre, nom = analyser_touche(cfg.touche)
     except Exception as e:
@@ -221,8 +245,9 @@ async def diagnostiquer(cfg: Config) -> int:
     print("Autodiagnostic du compagnon. Mets ton casque.")
     print(f"Python {sys.version.split()[0]}")
     cerveau = await tester_groq(cfg)
+    image = await asyncio.to_thread(tester_capture, cfg)
     if cerveau is not None:
-        await tester_vision(cfg, cerveau)
+        await tester_vision(cfg, cerveau, image)
     await tester_voix(cfg)
     await tester_micro(cfg, cerveau)
     await asyncio.to_thread(tester_touche, cfg)

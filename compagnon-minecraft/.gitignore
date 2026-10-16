@@ -6,3 +6,4 @@ __pycache__/
 # Données personnelles / locales
 .consommation_groq.json
 exemples/faux_latest.log
+derniere_capture.jpg

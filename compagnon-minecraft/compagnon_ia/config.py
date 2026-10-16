@@ -48,6 +48,7 @@ class Config:
     cooldown_spontane: float = 45.0
     seuil_changement: float = 0.04
     fenetre_minecraft: str = "Minecraft"
+    suivre_fenetre: bool = True
     ecran: int = 1
     largeur_image: int = 1280
     qualite_jpeg: int = 85
@@ -66,7 +67,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     "voix": ("voix", "debit", "volume", "sortie_audio"),
     "jeu": ("pseudo", "chemin_log", "mot_cle_chat"),
     "regard": ("commentaires_spontanes", "intervalle_capture", "cooldown_spontane",
-               "seuil_changement", "fenetre_minecraft", "ecran", "largeur_image", "qualite_jpeg"),
+               "seuil_changement", "fenetre_minecraft", "suivre_fenetre", "ecran", "largeur_image", "qualite_jpeg"),
     "memoire": ("echanges",),
     "budget": ("jetons_par_jour", "jetons_spontanes_par_heure"),
 }

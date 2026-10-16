@@ -12,6 +12,7 @@ def creer(cerveau=None, lecteur=None, **reglages):
     c = Compagnon(config_test(**reglages), cerveau=cerveau or FauxCerveau(), synthese=FausseSynthese(),
                   lecteur=lecteur or FauxLecteur(), micro=FauxMicro(), capture=FausseCapture())
     c.micro_actif = True  # comme si le micro s'était ouvert au démarrage
+    c.fichier_capture = None  # les tests n'écrivent pas derniere_capture.jpg
     return c
 
 

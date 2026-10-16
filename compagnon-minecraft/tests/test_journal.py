@@ -126,6 +126,7 @@ class TestEvenementsDansLaBoucle(unittest.TestCase):
             c = Compagnon(config_test(), cerveau=FauxCerveau(["Encore ? Ce zombie t'a bien eu."]),
                           synthese=FausseSynthese(), lecteur=FauxLecteur(), micro=FauxMicro(),
                           capture=FausseCapture())
+            c.fichier_capture = None
             c._sur_evenement(EvenementJeu("mort", "Arthur a été tué par Zombie"))
             await asyncio.gather(*c._taches)
             await c._tour
@@ -140,6 +141,7 @@ class TestEvenementsDansLaBoucle(unittest.TestCase):
         async def scenario():
             c = Compagnon(config_test(), cerveau=FauxCerveau(), synthese=FausseSynthese(),
                           lecteur=FauxLecteur(), micro=FauxMicro(), capture=FausseCapture())
+            c.fichier_capture = None
             c._sur_evenement(EvenementJeu("chat", "<Arthur> @compagnon salut", "salut"))
             await asyncio.gather(*c._taches)
             await c._tour
