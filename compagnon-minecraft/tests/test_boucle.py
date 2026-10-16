@@ -51,6 +51,25 @@ class TestPushToTalk(unittest.TestCase):
         self.assertTrue(c._tour.cancelled())
         self.assertTrue(c.cerveau.historique[0][1].endswith("[…interrompu]"))
 
+    def test_demande_annulee_pendant_l_attente_ne_relance_rien(self):
+        # Double appui rapide : la 1re phrase, en train de couper l'ancienne réponse, est annulée à son tour.
+        async def scenario():
+            c = creer(FauxCerveau(["Une longue réponse qui prend son temps pour venir, vraiment."], delai=0.02))
+            await c.soumettre(Demande("voix", "A"))
+            await asyncio.sleep(0.05)
+            premier = c._tour
+            demande_b = asyncio.create_task(c.soumettre(Demande("voix", "B")))
+            await asyncio.sleep(0)
+            demande_b.cancel()
+            await asyncio.wait({demande_b})
+            await asyncio.sleep(0.05)
+            return c, premier, demande_b
+
+        c, premier, demande_b = asyncio.run(scenario())
+        self.assertTrue(demande_b.cancelled())
+        self.assertIs(c._tour, premier)
+        self.assertEqual(c.cerveau.entrees, ["[Voix] A"])
+
     def test_appui_trop_court_ignore(self):
         async def scenario():
             c = creer()

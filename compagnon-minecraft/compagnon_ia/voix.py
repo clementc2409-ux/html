@@ -131,6 +131,7 @@ class Parole:
         self.sur_premier_son = sur_premier_son
         self._file: asyncio.Queue = asyncio.Queue()
         self._syntheses: list[asyncio.Task] = []
+        self._a_joue = False
         self._terminee = False
         self._lecture = asyncio.create_task(self._jouer())
 
@@ -153,6 +154,7 @@ class Parole:
             if self.sur_premier_son is not None:
                 self.sur_premier_son()
                 self.sur_premier_son = None
+            self._a_joue = True
             self.lecteur.jouer(pcm)
 
     async def finir(self) -> None:
@@ -166,5 +168,5 @@ class Parole:
         for tache in self._syntheses:
             tache.cancel()
         self._lecture.cancel()
-        if not self._terminee:  # ne pas couper une prise de parole suivante
+        if self._a_joue and not self._terminee:  # ne couper que notre propre son
             self.lecteur.interrompre()

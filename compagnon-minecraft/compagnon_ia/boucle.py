@@ -13,11 +13,11 @@ from PIL import Image
 
 from .audio import Micro, encoder_flac, niveau_crete
 from .budget import Budget
-from .capture import CaptureEcran, CaptureTest, preparer_image
+from .capture import CaptureEcran, CaptureTest, difference, empreinte, jeu_au_premier_plan, preparer_image
 from .cerveau import Cerveau, ErreurGroq, LimiteGroq, charger_systeme
 from .config import RACINE, Config, chemin_log
 from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
-from .phrases import DecoupeurPhrases, est_silence
+from .phrases import DecoupeurPhrases, PorteSilence, est_silence
 from .touches import ToucheParler
 from .voix import Lecteur, Parole, Synthese
 
@@ -27,6 +27,7 @@ log = logging.getLogger("compagnon")
 PRIORITE = {"voix": 0, "chat": 0, "evenement": 1, "spontane": 2}
 DUREE_MIN_VOIX = 0.4      # secondes : en dessous, appui accidentel
 NIVEAU_MIN_VOIX = 0.01    # volume crête : en dessous, micro coupé / rien dit
+PAUSE_APRES_PAROLE = 8.0  # secondes de calme après une réponse avant un commentaire spontané
 
 
 @dataclass
@@ -46,7 +47,8 @@ def formuler(demande: Demande) -> str:
     if demande.genre == "evenement":
         return f"[Événement] {demande.texte}"
     return ("[Coup d'œil] Capture automatique pendant qu'il joue. Réagis seulement si ça vaut vraiment "
-            "le coup ; sinon réponds exactement SILENCE.")
+            "le coup et sans te répéter ; sinon réponds exactement SILENCE. Si la capture montre un menu "
+            "(pause, inventaire, options) ou un écran de chargement, réponds SILENCE.")
 
 
 class Compagnon:
@@ -75,6 +77,11 @@ class Compagnon:
         self._tache_voix: asyncio.Task | None = None
         self._enregistre = False
         self._taches: list[asyncio.Task] = []
+        # Regard (commentaires spontanés)
+        self._derniere_empreinte = None          # dernière image envoyée au modèle
+        self._dernier_spontane = float("-inf")   # dernier commentaire spontané prononcé
+        self._fin_parole = float("-inf")
+        self._derniere_raison: str | None = None
 
     # ------------------------------------------------------------------ démarrage / arrêt
     async def tourner(self) -> None:
@@ -89,6 +96,7 @@ class Compagnon:
         surveillant = SurveillantLog(self.chemin_log, AnalyseurLog(self.cfg.pseudo, self.cfg.mot_cle_chat),
                                      self._sur_evenement)
         self._taches.append(asyncio.create_task(surveillant.tourner()))
+        self._taches.append(asyncio.create_task(self._boucle_regard()))
         self._afficher_accueil()
         try:
             await asyncio.Event().wait()  # tout se passe dans les rappels et les tâches
@@ -149,6 +157,11 @@ class Compagnon:
         else:
             log.warning("  Pseudo       : NON CONFIGURÉ -> tes morts et tes succès ne seront pas détectés "
                         "(réglage « pseudo » dans config.toml)")
+        if self.cfg.commentaires_spontanes:
+            log.info("  Regard       : capture toutes les %.0f s, commentaire spontané au plus toutes les %.0f s",
+                     self.cfg.intervalle_capture, self.cfg.cooldown_spontane)
+        else:
+            log.info("  Regard       : commentaires spontanés désactivés")
         log.info("  Voix         : %s", self.cfg.voix)
         log.info("  Groq         : %s", self.budget.resume())
         log.info("  Ctrl+C pour quitter.")
@@ -242,6 +255,66 @@ class Compagnon:
         self._taches.append(asyncio.create_task(self.soumettre(demande)))
         self._taches = [t for t in self._taches if not t.done()]
 
+    # ------------------------------------------------------------------ regard (commentaires spontanés)
+    def _occupe(self) -> str | None:
+        """Raison de ne pas faire de commentaire spontané maintenant (None = la voie est libre)."""
+        if self._enregistre:
+            return "tu es en train de parler"
+        if (self._tour and not self._tour.done()) or (self._tache_voix and not self._tache_voix.done()):
+            return "réponse en cours"
+        if self.lecteur.parle:
+            return "je parle"
+        maintenant = time.monotonic()
+        reste = self.cfg.cooldown_spontane - (maintenant - self._dernier_spontane)
+        if reste > 0:
+            return f"cooldown après le dernier commentaire (encore {reste:.0f} s)"
+        if maintenant - self._fin_parole < PAUSE_APRES_PAROLE:
+            return "on vient de parler"
+        return None
+
+    def _signaler(self, raison: str | None, niveau: int = logging.INFO) -> None:
+        """Affiche pourquoi on n'envoie rien, sans répéter la même raison toutes les 20 s."""
+        cle = raison.split(" (")[0] if raison else None  # sans le compte à rebours éventuel
+        if cle and cle != self._derniere_raison:
+            log.log(niveau, "[Regard] pas de commentaire : %s", raison)
+        self._derniere_raison = cle
+
+    async def _boucle_regard(self) -> None:
+        while True:
+            await asyncio.sleep(self.cfg.intervalle_capture)
+            if not self.cfg.commentaires_spontanes:
+                continue
+            try:
+                await self._coup_d_oeil()
+            except Exception:
+                log.exception("[Regard] erreur inattendue")
+
+    async def _coup_d_oeil(self) -> None:
+        raison = self._occupe()
+        if raison:
+            self._signaler(raison, logging.DEBUG)
+            return
+        if not self.mode_test and not jeu_au_premier_plan(self.cfg.fenetre_minecraft):
+            self._signaler(f"la fenêtre au premier plan n'est pas « {self.cfg.fenetre_minecraft} »")
+            return
+        image = await self._capturer()
+        if image is None:
+            return
+        if self._derniere_empreinte is not None:
+            ecart = difference(empreinte(image), self._derniere_empreinte)
+            if ecart < self.cfg.seuil_changement:
+                self._signaler("écran quasi identique (jeu en pause ou immobile ?)")
+                return
+        autorise, raison = self.budget.autorise_spontane()
+        if not autorise:
+            self._signaler(raison)
+            return
+        if self._occupe():  # quelqu'un a pris la parole pendant la capture
+            return
+        self._derniere_raison = None
+        log.info("[Regard] coup d'œil envoyé")
+        await self.soumettre(Demande("spontane", image=image))
+
     # ------------------------------------------------------------------ tours de parole
     async def soumettre(self, demande: Demande) -> bool:
         """Lance une réponse. Une demande plus (ou aussi) prioritaire interrompt la réponse en cours ;
@@ -252,8 +325,9 @@ class Compagnon:
             if PRIORITE[demande.genre] <= PRIORITE[self._genre_tour]:
                 self._tour.cancel()
                 self.lecteur.interrompre()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._tour
+                # asyncio.wait (et non « await tour ») : si c'est nous qu'on annule entre-temps,
+                # l'annulation doit remonter normalement.
+                await asyncio.wait({self._tour})
                 break
             await asyncio.wait({self._tour}, timeout=30)
         self._genre_tour = demande.genre
@@ -276,9 +350,11 @@ class Compagnon:
             log.exception("[Erreur] problème inattendu pendant la réponse")
 
     async def _repondre(self, demande: Demande) -> None:
+        spontane = demande.genre == "spontane"
         image = demande.image if demande.image is not None else await self._capturer()
         image_url = None
         if image is not None:
+            self._derniere_empreinte = empreinte(image)
             image_url = await asyncio.to_thread(preparer_image, image, self.cfg.largeur_image, self.cfg.qualite_jpeg)
         entree = formuler(demande)
         t0 = demande.t0
@@ -288,43 +364,63 @@ class Compagnon:
 
         parole = Parole(self.synthese, self.lecteur, premier_son if demande.genre == "voix" else None)
         decoupeur = DecoupeurPhrases()
+        porte = PorteSilence() if spontane else None  # retient le début tant que ça pourrait être SILENCE
         morceaux: list[str] = []
         t_premier_mot = None
-        memorise = False
+        memorise = a_parle = False
         try:
-            async with contextlib.aclosing(self.cerveau.repondre(entree, image_url)) as flux:
+            async with contextlib.aclosing(self.cerveau.repondre(entree, image_url, spontane)) as flux:
                 async for morceau in flux:
                     if t_premier_mot is None:
                         t_premier_mot = time.perf_counter() - t0
                     morceaux.append(morceau)
+                    if porte is not None:
+                        morceau = porte.ajouter(morceau)
+                        if porte.etat is True:
+                            break  # SILENCE : inutile de lire la suite
                     for phrase in decoupeur.ajouter(morceau):
                         parole.dire(phrase)
             texte = "".join(morceaux).strip()
-            if not texte or est_silence(texte):
-                log.info("[Lui]    (ne dit rien)")
+            if porte is not None:
+                porte.terminer()
+            if not texte or est_silence(texte) or (porte is not None and porte.etat):
+                log.info("[Regard] SILENCE (rien d'intéressant à dire)" if spontane else "[Lui]    (ne dit rien)")
                 return
             for phrase in decoupeur.terminer():
                 parole.dire(phrase)
             self.cerveau.memoriser(entree, texte)
-            memorise = True
+            memorise = a_parle = True
+            if spontane:
+                self._dernier_spontane = time.monotonic()
             details = f"premier mot {t_premier_mot:.2f} s" if t_premier_mot is not None else ""
             if self.cerveau.derniers_jetons:
                 details += f", {self.cerveau.derniers_jetons} jetons"
-            log.info("[Lui]    %s   (%s)", texte, details)
+            log.info("[Lui]    %s%s   (%s)", "(spontané) " if spontane else "", texte, details)
             await parole.finir()
         except LimiteGroq as e:
+            if spontane:
+                # Les commentaires spontanés sont sacrifiés en premier.
+                self.budget.pause_spontanes(e.attente or 60)
+                log.warning("[Groq]   limite atteinte : commentaire spontané abandonné (pause %.0f s).",
+                            e.attente or 60)
+                return
             log.error("[Groq]   limite atteinte : %s", e)
+            a_parle = True
             await self._dire_message(self._message_limite(e.attente), parole)
         except ErreurGroq as e:
             log.error("[Groq]   %s", e)
-            await self._dire_message("Désolé, je n'arrive pas à joindre Groq.", parole)
+            if not spontane:
+                a_parle = True
+                await self._dire_message("Désolé, je n'arrive pas à joindre Groq.", parole)
         except asyncio.CancelledError:
             partiel = "".join(morceaux).strip()
-            if partiel and not memorise:
+            if partiel and not memorise and not (porte is not None and porte.etat is not False):
                 self.cerveau.memoriser(entree, partiel + " […interrompu]")
             raise
         finally:
             parole.annuler()
+            if a_parle:
+                self._fin_parole = time.monotonic()
 
     @staticmethod
     def _message_limite(attente: float | None) -> str:

@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 log = logging.getLogger("compagnon")
@@ -71,3 +73,43 @@ def preparer_image(image: Image.Image, largeur: int = 768, qualite: int = 70) ->
     tampon = io.BytesIO()
     image.convert("RGB").save(tampon, format="JPEG", quality=qualite, optimize=True)
     return "data:image/jpeg;base64," + base64.b64encode(tampon.getvalue()).decode("ascii")
+
+
+# --- Comparaison d'images et détection « est-ce que je joue ? » -------------------------------------
+
+def empreinte(image: Image.Image) -> np.ndarray:
+    """Version minuscule en couleur (64×36), suffisante pour savoir si l'écran a changé."""
+    return np.asarray(image.convert("RGB").resize((64, 36), Image.BILINEAR), dtype=np.float32)
+
+
+def difference(a: np.ndarray, b: np.ndarray) -> float:
+    """Différence moyenne entre deux empreintes, de 0 (identiques) à 1 (tout a changé)."""
+    return float(np.abs(a - b).mean()) / 255.0
+
+
+def titre_fenetre_active() -> str | None:
+    """Titre de la fenêtre au premier plan (Windows seulement ; None ailleurs ou en cas d'échec)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        fenetre = user32.GetForegroundWindow()
+        longueur = user32.GetWindowTextLengthW(fenetre)
+        tampon = ctypes.create_unicode_buffer(longueur + 1)
+        user32.GetWindowTextW(fenetre, tampon, longueur + 1)
+        return tampon.value
+    except Exception:
+        return None
+
+
+def jeu_au_premier_plan(motif: str) -> bool:
+    """Vrai si la fenêtre active contient « motif » dans son titre (ou si on ne peut pas le savoir).
+
+    Minecraft se met en pause tout seul quand il perd le focus : inutile de commenter le bureau.
+    """
+    if not motif.strip():
+        return True
+    titre = titre_fenetre_active()
+    return titre is None or motif.strip().lower() in titre.lower()

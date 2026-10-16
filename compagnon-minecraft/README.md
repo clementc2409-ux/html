@@ -124,8 +124,27 @@ Ouvre `config.toml` avec le Bloc-notes. Chaque réglage est expliqué en comment
 | `pseudo` | `""` | **Ton pseudo Minecraft exact.** Sans lui, tes morts et tes succès ne sont pas détectés. |
 | `chemin_log` | `%APPDATA%\.minecraft\logs\latest.log` | Journal du jeu. Avec CurseForge, Prism ou Modrinth, mets le `logs\latest.log` de ton instance. |
 | `mot_cle_chat` | `"@compagnon"` | Écris ce mot au début d'un message du chat pour lui parler par écrit. |
+| `commentaires_spontanes` | `true` | Commentaires spontanés activés ou non. |
+| `intervalle_capture` | `20` | Une capture toutes les 20 s pour un éventuel commentaire spontané. |
+| `cooldown_spontane` | `45` | Au moins 45 s entre deux commentaires spontanés prononcés. |
+| `seuil_changement` | `0.04` | Écart minimal (4 %) avec la dernière image envoyée pour en envoyer une nouvelle. |
+| `fenetre_minecraft` | `"Minecraft"` | Pas de commentaire spontané si la fenêtre active n'a pas ce mot dans son titre. Mets `""` si ton modpack change le titre. |
+| `jetons_par_jour`, `jetons_spontanes_par_heure` | `200000`, `40000` | Budget Groq (voir plus bas). |
 
 Personnalité : modifie librement **`personnalite.md`**. Elle est relue à chaque lancement.
+
+Chronique (facultatif) : crée un fichier **`chronique.md`** à côté de `compagnon.py` et raconte-y
+l'histoire de ta partie (nom du royaume, lieux, événements marquants, projets en cours). Son contenu
+est ajouté au prompt système au démarrage : le compagnon s'en souviendra. Pense à rester concis, car
+chaque ligne est renvoyée à chaque requête et consomme des jetons. Exemple :
+
+```markdown
+# Le royaume de Valombre
+- J'ai fondé Valombre au bord d'un grand lac, au sud d'une forêt de bouleaux.
+- Le donjon est fini, les remparts sont à moitié construits.
+- Projet en cours : un barrage sur la rivière de l'est et un port pour la capitale.
+- Mon chien s'appelle Brigand. Je suis mort deux fois dans la lave, il ne faut pas m'en parler.
+```
 
 ---
 
@@ -206,7 +225,42 @@ Test en vrai : mets ton `pseudo` dans `config.toml`, lance Minecraft puis `pytho
 
 ---
 
-## 8. Conseils
+## 8. Tester, étape 3 : commentaires spontanés
+
+Toutes les `intervalle_capture` secondes (20 s par défaut), le compagnon prend une capture et décide
+s'il l'envoie au modèle. **Il ne l'envoie pas** si :
+
+- il est déjà en train de parler ou de répondre, ou si tu es en train de parler ;
+- un commentaire spontané a déjà été prononcé il y a moins de `cooldown_spontane` secondes (45 s) ;
+- la fenêtre au premier plan n'est pas Minecraft (tu es sur le bureau, dans Discord…). Minecraft se
+  met d'ailleurs en pause tout seul dans ce cas ;
+- l'écran a à peine changé depuis la dernière image envoyée. C'est le cas quand le jeu est en pause,
+  car l'image est figée, ou quand tu restes immobile ;
+- le budget de jetons ne le permet pas (voir plus bas).
+
+Sinon, il envoie l'image avec la consigne « réagis seulement si ça vaut le coup ». Le modèle répond
+exactement `SILENCE` s'il n'y a rien à dire (y compris devant un menu ou un inventaire), et dans ce cas
+**rien n'est prononcé**. Les réponses à tes questions ne sont jamais soumises au cooldown.
+
+Test sans Minecraft :
+
+1. `python compagnon.py --test`, puis attends sans rien faire.
+2. Toutes les 20 s, une image d'exemple différente est utilisée. Tu dois voir alternativement
+   `[Regard] coup d'œil envoyé`, puis soit `[Regard] SILENCE (rien d'intéressant à dire)`, soit
+   `[Lui] (spontané) …` avec sa voix. Après un commentaire prononcé, la ligne
+   `pas de commentaire : cooldown…` apparaît avec `--verbeux`.
+3. **Écran inchangé** : laisse une seule image dans `exemples\images` (déplace les autres ailleurs). Après
+   le premier envoi, tu dois voir `[Regard] pas de commentaire : écran quasi identique`.
+4. **Priorités** : pendant un commentaire spontané, appuie sur la touche push-to-talk. Il se tait et t'écoute.
+
+Test en vrai : joue normalement 10 minutes. Mets le jeu en pause : plus rien n'est envoyé. Passe sur le
+bureau : plus rien non plus. Si tu le trouves trop bavard, augmente `cooldown_spontane` ou baisse
+`jetons_spontanes_par_heure`. Pour le couper complètement : `commentaires_spontanes = false`.
+
+> Astuce : remplace les images de `exemples\images` par tes propres captures Minecraft (touche F2 dans
+> le jeu, elles sont dans `%APPDATA%\.minecraft\screenshots`) pour des tests plus parlants.
+
+## 9. Conseils
 
 - **Casque obligatoire.** Avec des haut-parleurs, le micro capte la voix du compagnon. Le push-to-talk
   limite les dégâts, mais un casque est bien plus confortable.
@@ -218,9 +272,26 @@ Test en vrai : mets ton `pseudo` dans `config.toml`, lance Minecraft puis `pytho
 
 ## Budget et limites Groq
 
-- Si Groq répond « trop de requêtes » (429) ou si le réseau coupe, le compagnon attend et réessaie
-  sans planter. S'il ne peut pas répondre à ta question, il te le dit à voix haute.
-- La consommation du jour s'affiche au démarrage. Elle est enregistrée dans `.consommation_groq.json`.
+Avec l'offre gratuite, la vraie limite est le **nombre de jetons par jour** du modèle vision (environ
+200 000). Une requête avec image coûte environ 1 500 à 3 000 jetons, soit une centaine de réponses par
+jour. Envoyer une capture toutes les 20 s viderait ce quota en moins d'une heure : le compagnon se régule donc tout seul.
+
+- **Tes questions, tes messages `@compagnon` et les événements du jeu passent toujours** (dans la limite
+  de ce que Groq accepte).
+- Les **commentaires spontanés** ont leur propre budget, `jetons_spontanes_par_heure` (40 000 par défaut,
+  soit environ un envoi toutes les 3 à 4 minutes en moyenne quand l'écran bouge). Un petit crédit
+  s'accumule quand tu ne joues pas, ce qui permet quelques commentaires rapprochés de temps en temps.
+- Au-delà de **80 % de `jetons_par_jour`**, ou s'il reste moins de 30 requêtes Groq pour la journée,
+  plus de commentaire spontané : le reste est gardé pour tes questions.
+- Si Groq répond « trop de requêtes » (429) : un commentaire spontané est **abandonné immédiatement**
+  et les suivants sont mis en pause le temps demandé par Groq. Une question est **réessayée**
+  (jusqu'à 3 fois, si l'attente demandée est courte). Sinon le compagnon te dit à voix haute de
+  patienter. En cas de coupure réseau, même principe, et le programme ne plante jamais.
+- La consommation du jour s'affiche au démarrage et après chaque réponse (en jetons). Elle est
+  enregistrée dans `.consommation_groq.json` (remise à zéro chaque jour).
+
+Si ton compte a un quota plus large (voir <https://console.groq.com/settings/limits>), augmente
+`jetons_par_jour` et `jetons_spontanes_par_heure` dans `config.toml`.
 
 ## Dépannage
 
@@ -236,6 +307,8 @@ Test en vrai : mets ton `pseudo` dans `config.toml`, lance Minecraft puis `pytho
 | Capture noire | Mode fenêtré / sans bordure, et vérifie le réglage `ecran`. |
 | Il ne réagit pas à mes morts | Vérifie `pseudo` (exactement comme dans le jeu) et la ligne « Journal jeu » au démarrage. |
 | « journal introuvable » | Chemin du launcher différent : ouvre le dossier de ton instance, puis `logs\latest.log`. |
+| Il ne fait jamais de commentaire spontané | Regarde les lignes `[Regard] pas de commentaire : …` (avec `--verbeux` pour toutes). Souvent : titre de fenêtre (mets `fenetre_minecraft = ""`) ou budget. |
+| Il parle trop | Augmente `cooldown_spontane`, baisse `jetons_spontanes_par_heure`, ou durcis la règle « SILENCE » dans `personnalite.md`. |
 
 ## Structure du code
 
@@ -243,17 +316,18 @@ Test en vrai : mets ton `pseudo` dans `config.toml`, lance Minecraft puis `pytho
 compagnon.py              point d'entrée (options en ligne de commande)
 config.toml               réglages commentés
 personnalite.md           prompt système (personnalité), modifiable
+chronique.md              (facultatif, à créer) l'histoire de ta partie, ajoutée au prompt
 compagnon_ia/
   config.py               lecture de config.toml
-  capture.py              captures d'écran (mss), images de test, préparation JPEG
+  capture.py              captures d'écran (mss), images de test, JPEG, écran changé ?, fenêtre active
   audio.py                micro push-to-talk (sounddevice), encodage FLAC
   touches.py              touche push-to-talk clavier/souris (pynput)
   voix.py                 synthèse edge-tts, lecteur audio interruptible, parole phrase par phrase
   phrases.py              découpage en phrases, filtres (SILENCE, nettoyage)
   cerveau.py              Groq : Whisper, modèle vision en streaming, mémoire courte, erreurs/429
-  budget.py               suivi des jetons consommés
+  budget.py               suivi des jetons, budget des commentaires spontanés
   journal_jeu.py          lecture en direct de latest.log (morts, progrès, @compagnon)
-  boucle.py               chef d'orchestre : tours de parole, priorités, interruptions
+  boucle.py               chef d'orchestre : tours de parole, priorités, interruptions, regard
 exemples/images/          images d'exemple pour --test (remplace-les par tes captures F2 !)
 tests/                    tests automatiques : python -m unittest
 ```
