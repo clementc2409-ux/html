@@ -121,6 +121,9 @@ Ouvre `config.toml` avec le Bloc-notes. Chaque réglage est expliqué en comment
 | `voix` | `"fr-FR-HenriNeural"` | Voix du compagnon. Pour d'autres voix : `edge-tts --list-voices`. |
 | `modele_vision` | `"qwen/qwen3.8-27b"` | Modèle Groq qui voit l'écran. |
 | `ecran` | `1` | Écran à capturer, si tu en as plusieurs. |
+| `pseudo` | `""` | **Ton pseudo Minecraft exact.** Sans lui, tes morts et tes succès ne sont pas détectés. |
+| `chemin_log` | `%APPDATA%\.minecraft\logs\latest.log` | Journal du jeu. Avec CurseForge, Prism ou Modrinth, mets le `logs\latest.log` de ton instance. |
+| `mot_cle_chat` | `"@compagnon"` | Écris ce mot au début d'un message du chat pour lui parler par écrit. |
 
 Personnalité : modifie librement **`personnalite.md`**. Elle est relue à chaque lancement.
 
@@ -137,7 +140,8 @@ Commandes utiles :
 
 | Commande | Effet |
 |---|---|
-| `python compagnon.py --test` | Mode test : images d'exemple au lieu de vraies captures (pas besoin de Minecraft). |
+| `python compagnon.py --test` | Mode test : images d'exemple au lieu de vraies captures, faux journal du jeu (pas besoin de Minecraft). |
+| `python compagnon.py --simuler mort` | Ajoute une fausse mort au faux journal du mode test. Aussi : `--simuler progres`, `--simuler chat "ton message"`. |
 | `python compagnon.py --modeles` | Liste les modèles Groq disponibles avec ta clé. |
 | `python compagnon.py --peripheriques` | Liste les micros et sorties audio. |
 | `python compagnon.py --verbeux` | Plus de détails dans la console. |
@@ -171,9 +175,38 @@ parler par écrit : pratique pour tester sans micro.
 
 Si quelque chose ne marche pas, va voir la section [Dépannage](#dépannage).
 
+## 7. Tester, étape 2 : réactions aux événements du jeu
+
+Le compagnon lit `latest.log` en temps réel et réagit aussitôt, avec une capture d'écran en contexte, à :
+
+- **ta mort** : tous les messages de mort qui commencent par ton pseudo, en français ou en anglais ;
+- **tes progrès / défis / objectifs** (« a obtenu le progrès [L'âge de pierre] ») ;
+- **tes messages du chat qui commencent par `@compagnon`** : il répond à voix haute.
+
+Test sans Minecraft :
+
+1. Console 1 : `python compagnon.py --test`. Vérifie la ligne « Journal jeu : …\exemples\faux_latest.log ».
+2. Console 2 (même dossier, `.venv` activé) :
+   ```powershell
+   python compagnon.py --simuler mort
+   python compagnon.py --simuler progres
+   python compagnon.py --simuler chat "tu trouves ma tour réussie ?"
+   ```
+   Dans la console 1, tu dois voir `[Jeu] mort : …`, `[Jeu] progrès : …` puis `[Chat] …`, et l'entendre
+   réagir à chaque fois (il te charrie pour la mort, te félicite pour le progrès, répond au message).
+3. Tu peux aussi ouvrir `exemples\faux_latest.log` dans le Bloc-notes, **ajouter une ligne à la fin** et
+   enregistrer, par exemple : `[21:04:11] [Server thread/INFO]: Steve a été tué par Zombie`.
+   En mode test, le pseudo est `Steve` si tu n'en as pas configuré.
+
+Test en vrai : mets ton `pseudo` dans `config.toml`, lance Minecraft puis `python compagnon.py`.
+Écris `@compagnon salut !` dans le chat du jeu, puis meurs bêtement (une chute fera l'affaire).
+
+> Le journal est écrit dans la langue du jeu : le compagnon reconnaît les messages en français et en
+> anglais. Les messages d'autres joueurs ou de tes animaux nommés sont ignorés.
+
 ---
 
-## 7. Conseils
+## 8. Conseils
 
 - **Casque obligatoire.** Avec des haut-parleurs, le micro capte la voix du compagnon. Le push-to-talk
   limite les dégâts, mais un casque est bien plus confortable.
@@ -201,6 +234,8 @@ Si quelque chose ne marche pas, va voir la section [Dépannage](#dépannage).
 | Pas de son | Vérifie la sortie par défaut de Windows ou le réglage `sortie_audio`. edge-tts a besoin d'Internet. |
 | « synthèse impossible » | Pas d'accès Internet à Microsoft (pare-feu, VPN) ou nom de voix erroné. |
 | Capture noire | Mode fenêtré / sans bordure, et vérifie le réglage `ecran`. |
+| Il ne réagit pas à mes morts | Vérifie `pseudo` (exactement comme dans le jeu) et la ligne « Journal jeu » au démarrage. |
+| « journal introuvable » | Chemin du launcher différent : ouvre le dossier de ton instance, puis `logs\latest.log`. |
 
 ## Structure du code
 
@@ -217,6 +252,7 @@ compagnon_ia/
   phrases.py              découpage en phrases, filtres (SILENCE, nettoyage)
   cerveau.py              Groq : Whisper, modèle vision en streaming, mémoire courte, erreurs/429
   budget.py               suivi des jetons consommés
+  journal_jeu.py          lecture en direct de latest.log (morts, progrès, @compagnon)
   boucle.py               chef d'orchestre : tours de parole, priorités, interruptions
 exemples/images/          images d'exemple pour --test (remplace-les par tes captures F2 !)
 tests/                    tests automatiques : python -m unittest

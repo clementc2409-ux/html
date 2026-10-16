@@ -2,6 +2,8 @@
 
     python compagnon.py                 lance le compagnon
     python compagnon.py --test          mode test (images d'exemple au lieu de vraies captures)
+    python compagnon.py --simuler mort  ajoute une fausse mort au faux journal du mode test
+                                        (aussi : progres, chat "ton message")
     python compagnon.py --modeles       liste les modèles Groq disponibles avec ta clé
     python compagnon.py --peripheriques liste les micros et sorties audio
 """
@@ -61,11 +63,24 @@ def lister_peripheriques() -> None:
           "dans « micro » ou « sortie_audio » de config.toml.")
 
 
+def simuler(cfg, genre: str, texte: str) -> None:
+    from compagnon_ia.journal_jeu import PSEUDO_TEST, fichier_log_test, ligne_simulee
+
+    chemin = fichier_log_test()
+    ligne = ligne_simulee(genre, cfg.pseudo or PSEUDO_TEST, texte, cfg.mot_cle_chat)
+    with open(chemin, "a", encoding="utf-8") as fichier:
+        fichier.write(ligne + "\n")
+    print(f"Ajouté à {chemin} :\n  {ligne}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compagnon IA vocal pour Minecraft (Groq).")
     parser.add_argument("--test", action="store_true",
                         help="images d'exemple au lieu de vraies captures, faux journal du jeu")
     parser.add_argument("--config", type=Path, help="autre fichier de configuration que config.toml")
+    parser.add_argument("--simuler", choices=("mort", "progres", "chat"),
+                        help="ajoute une fausse ligne au faux journal du mode test (à lancer dans une 2e console)")
+    parser.add_argument("texte", nargs="*", help="avec --simuler chat : le message à écrire")
     parser.add_argument("--modeles", action="store_true", help="liste les modèles Groq disponibles")
     parser.add_argument("--peripheriques", action="store_true", help="liste les micros et sorties audio")
     parser.add_argument("--verbeux", action="store_true", help="affiche plus de détails")
@@ -81,6 +96,9 @@ def main() -> int:
     except ErreurConfig as e:
         log.error("%s", e)
         return 1
+    if args.simuler:
+        simuler(cfg, args.simuler, " ".join(args.texte))
+        return 0
     if not cfg.cle_api:
         log.error("Clé API Groq manquante. Définis la variable d'environnement GROQ_API_KEY "
                   "(voir README) ou remplis cle_api dans config.toml.")

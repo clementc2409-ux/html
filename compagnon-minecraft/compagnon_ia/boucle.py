@@ -15,7 +15,8 @@ from .audio import Micro, encoder_flac, niveau_crete
 from .budget import Budget
 from .capture import CaptureEcran, CaptureTest, preparer_image
 from .cerveau import Cerveau, ErreurGroq, LimiteGroq, charger_systeme
-from .config import RACINE, Config
+from .config import RACINE, Config, chemin_log
+from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
 from .phrases import DecoupeurPhrases, est_silence
 from .touches import ToucheParler
 from .voix import Lecteur, Parole, Synthese
@@ -53,6 +54,9 @@ class Compagnon:
                  cerveau=None, synthese=None, lecteur=None, micro=None, capture=None):
         self.cfg = cfg
         self.mode_test = mode_test
+        if mode_test and not cfg.pseudo:
+            cfg.pseudo = PSEUDO_TEST
+        self.chemin_log = fichier_log_test() if mode_test else chemin_log(cfg)
         self.budget = Budget(cfg.jetons_par_jour, cfg.jetons_spontanes_par_heure,
                              RACINE / ".consommation_groq.json")
         self.cerveau = cerveau or Cerveau(cfg, charger_systeme(cfg), self.budget)
@@ -82,6 +86,9 @@ class Compagnon:
             log.error("[Voix]   sortie audio indisponible : %s (les réponses s'afficheront seulement ici)", e)
         self._demarrer_micro()
         threading.Thread(target=self._lire_console, daemon=True).start()
+        surveillant = SurveillantLog(self.chemin_log, AnalyseurLog(self.cfg.pseudo, self.cfg.mot_cle_chat),
+                                     self._sur_evenement)
+        self._taches.append(asyncio.create_task(surveillant.tourner()))
         self._afficher_accueil()
         try:
             await asyncio.Event().wait()  # tout se passe dans les rappels et les tâches
@@ -135,6 +142,13 @@ class Compagnon:
         log.info("  Modèles      : %s (voix -> texte), %s (vision)",
                  self.cfg.modele_transcription, self.cfg.modele_vision)
         log.info("  Captures     : %s", self.capture.description())
+        log.info("  Journal jeu  : %s%s", self.chemin_log, "" if self.chemin_log.exists() else " (pas encore là)")
+        if self.cfg.pseudo:
+            log.info("  Pseudo       : %s  (écris « %s … » dans le chat pour lui parler)",
+                     self.cfg.pseudo, self.cfg.mot_cle_chat)
+        else:
+            log.warning("  Pseudo       : NON CONFIGURÉ -> tes morts et tes succès ne seront pas détectés "
+                        "(réglage « pseudo » dans config.toml)")
         log.info("  Voix         : %s", self.cfg.voix)
         log.info("  Groq         : %s", self.budget.resume())
         log.info("  Ctrl+C pour quitter.")
@@ -212,6 +226,21 @@ class Compagnon:
         self._interrompre()
         log.info("[Moi]    %s   (écrit dans la console)", ligne)
         self._tache_voix = asyncio.create_task(self.soumettre(Demande("voix", ligne)))
+
+    # ------------------------------------------------------------------ journal du jeu
+    def _sur_evenement(self, evenement: EvenementJeu) -> None:
+        if evenement.genre == "chat":
+            log.info("[Chat]   %s", evenement.detail or "(t'interpelle)")
+            demande = Demande("chat", evenement.detail or "(il t'interpelle sans rien ajouter)")
+        elif evenement.genre == "mort":
+            log.info("[Jeu]    mort : %s", evenement.texte)
+            demande = Demande("evenement", f"Le seigneur vient de mourir. Message du jeu : « {evenement.texte} »")
+        else:
+            log.info("[Jeu]    progrès : %s", evenement.texte)
+            demande = Demande("evenement", f"Il vient d'obtenir le progrès « {evenement.detail} ». "
+                                           f"Message du jeu : « {evenement.texte} »")
+        self._taches.append(asyncio.create_task(self.soumettre(demande)))
+        self._taches = [t for t in self._taches if not t.done()]
 
     # ------------------------------------------------------------------ tours de parole
     async def soumettre(self, demande: Demande) -> bool:
