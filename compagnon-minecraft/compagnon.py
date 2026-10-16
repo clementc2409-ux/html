@@ -4,6 +4,7 @@
     python compagnon.py --test          mode test (images d'exemple au lieu de vraies captures)
     python compagnon.py --simuler mort  ajoute une fausse mort au faux journal du mode test
                                         (aussi : progres, chat "ton message")
+    python compagnon.py --diagnostic    teste chaque maillon (Groq, voix, micro, touche) et dit quoi corriger
     python compagnon.py --modeles       liste les modèles Groq disponibles avec ta clé
     python compagnon.py --peripheriques liste les micros et sorties audio
 """
@@ -12,7 +13,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import logging
+import logging.handlers
+import queue
 import sys
 from pathlib import Path
 
@@ -30,8 +34,17 @@ def configurer_logs(verbeux: bool) -> None:
             flux.reconfigure(errors="replace")
         except (AttributeError, ValueError):
             pass
-    logging.basicConfig(level=logging.DEBUG if verbeux else logging.INFO,
-                        format="%(asctime)s  %(message)s", datefmt="%H:%M:%S", stream=sys.stdout)
+    # Les messages passent par un thread dédié : si la console Windows se fige (clic dans la fenêtre =
+    # mode « Sélectionner »), le compagnon continue d'écouter et de parler au lieu de se bloquer.
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+    file_messages: queue.SimpleQueue = queue.SimpleQueue()
+    ecrivain = logging.handlers.QueueListener(file_messages, console)
+    ecrivain.start()
+    atexit.register(ecrivain.stop)
+    vers_la_file = logging.handlers.QueueHandler(file_messages)
+    vers_la_file.setFormatter(logging.Formatter("%(message)s"))  # le format final est appliqué par « console »
+    logging.basicConfig(level=logging.DEBUG if verbeux else logging.INFO, handlers=[vers_la_file])
     # Les bibliothèques réseau sont bavardes : on ne garde que leurs avertissements.
     for nom in ("httpx", "httpcore", "groq", "asyncio", "PIL"):
         logging.getLogger(nom).setLevel(logging.WARNING)
@@ -81,6 +94,8 @@ def main() -> int:
     parser.add_argument("--simuler", choices=("mort", "progres", "chat"),
                         help="ajoute une fausse ligne au faux journal du mode test (à lancer dans une 2e console)")
     parser.add_argument("texte", nargs="*", help="avec --simuler chat : le message à écrire")
+    parser.add_argument("--diagnostic", action="store_true",
+                        help="teste la clé Groq, le modèle, la voix, le micro et la touche, et dit quoi corriger")
     parser.add_argument("--modeles", action="store_true", help="liste les modèles Groq disponibles")
     parser.add_argument("--peripheriques", action="store_true", help="liste les micros et sorties audio")
     parser.add_argument("--verbeux", action="store_true", help="affiche plus de détails")
@@ -99,6 +114,13 @@ def main() -> int:
     if args.simuler:
         simuler(cfg, args.simuler, " ".join(args.texte))
         return 0
+    if args.diagnostic:
+        from compagnon_ia.diagnostic import diagnostiquer
+
+        try:
+            return asyncio.run(diagnostiquer(cfg))
+        except KeyboardInterrupt:
+            return 1
     if not cfg.cle_api:
         log.error("Clé API Groq manquante. Définis la variable d'environnement GROQ_API_KEY "
                   "(voir README) ou remplis cle_api dans config.toml.")

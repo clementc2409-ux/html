@@ -41,7 +41,9 @@ class TestPushToTalk(unittest.TestCase):
             c = creer(FauxCerveau(["Une très longue histoire qui ne finit jamais vraiment, " * 3], delai=0.02),
                       FauxLecteur(duree=1.0))
             await c.soumettre(Demande("voix", "Raconte"))
-            await asyncio.sleep(0.15)  # il a commencé à répondre
+            while not c.cerveau.entrees:  # capture + JPEG peuvent être lents au premier lancement
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.08)  # il a commencé à répondre
             c._appui()                 # on appuie : il doit se taire tout de suite
             await asyncio.sleep(0.02)
             return c

@@ -146,6 +146,7 @@ class Compagnon:
         log.info("Compagnon prêt%s.", " (MODE TEST)" if self.mode_test else "")
         if self.micro_actif:
             log.info("  Parler       : maintiens %s", self.touche.description())
+            log.info("                 (« [Micro] j'écoute… » doit s'afficher ; sinon : python compagnon.py --diagnostic)")
         log.info("  Clavier      : tape une phrase ici puis Entrée pour lui parler par écrit")
         log.info("  Modèles      : %s (voix -> texte), %s (vision)",
                  self.cfg.modele_transcription, self.cfg.modele_vision)

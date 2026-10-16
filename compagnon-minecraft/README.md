@@ -161,6 +161,7 @@ Commandes utiles :
 |---|---|
 | `python compagnon.py --test` | Mode test : images d'exemple au lieu de vraies captures, faux journal du jeu (pas besoin de Minecraft). |
 | `python compagnon.py --simuler mort` | Ajoute une fausse mort au faux journal du mode test. Aussi : `--simuler progres`, `--simuler chat "ton message"`. |
+| `python compagnon.py --diagnostic` | **Teste chaque maillon** (clé Groq, modèle, voix, micro, touche) et dit quoi corriger. À lancer en premier si quelque chose ne marche pas. |
 | `python compagnon.py --modeles` | Liste les modèles Groq disponibles avec ta clé. |
 | `python compagnon.py --peripheriques` | Liste les micros et sorties audio. |
 | `python compagnon.py --verbeux` | Plus de détails dans la console. |
@@ -295,8 +296,14 @@ Si ton compte a un quota plus large (voir <https://console.groq.com/settings/lim
 
 ## Dépannage
 
+**Premier réflexe : `python compagnon.py --diagnostic`.** En une minute, il teste la clé Groq, une
+réponse du modèle, la voix (tu dois entendre une phrase), le micro (parle quand il te le demande) et
+la touche push-to-talk (il affiche le nom de chaque touche ou bouton que tu presses). Il termine par
+la liste de ce qu'il faut corriger.
+
 | Problème | Solution |
 |---|---|
+| Rien ne s'affiche quand j'appuie sur la touche | La touche n'est pas détectée : `--diagnostic` t'affiche le nom à mettre dans `touche`. Le logiciel de certaines souris réaffecte les boutons latéraux : prends alors une touche clavier (`clavier:v`). |
 | « Clé API Groq manquante » | Refais l'étape 3 d) et **rouvre** PowerShell. |
 | « clé API refusée » | Clé mal copiée ou supprimée : crées-en une nouvelle. |
 | « le modèle … n'apparaît pas » | `python compagnon.py --modeles`, puis corrige `config.toml`. |
