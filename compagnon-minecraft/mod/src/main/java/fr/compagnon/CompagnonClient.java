@@ -21,6 +21,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -80,7 +81,8 @@ public class CompagnonClient implements ClientModInitializer {
 		etat.add("joueur", decrireJoueur(joueur, monde));
 		etat.add("monde", decrireMonde(monde));
 		etat.add("vise", decrireCible(mc, monde));
-		etat.addProperty("menu", mc.screen == null ? null : mc.screen.getClass().getSimpleName());
+		Screen ecran = mc.gui.screen(); // depuis 26.2, l'écran ouvert est rangé dans Gui
+		etat.addProperty("menu", ecran == null ? (String) null : ecran.getClass().getSimpleName());
 		etat.addProperty("pause", mc.isPaused());
 		etat.add("monstres", decrireMonstres(joueur, monde));
 		JsonArray liste = new JsonArray();
@@ -180,8 +182,9 @@ public class CompagnonClient implements ClientModInitializer {
 
 	private static JsonObject decrireMonde(ClientLevel monde) {
 		JsonObject m = new JsonObject();
-		m.addProperty("heure", monde.getDayTime() % 24000L);
-		m.addProperty("jour", monde.getDayTime() / 24000L);
+		long temps = monde.getOverworldClockTime(); // depuis 26.1, le temps vient de l'horloge de la Surface
+		m.addProperty("heure", temps % 24000L);
+		m.addProperty("jour", temps / 24000L);
 		m.addProperty("pluie", monde.isRaining());
 		m.addProperty("orage", monde.isThundering());
 		return m;
