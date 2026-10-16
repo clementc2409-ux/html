@@ -31,11 +31,18 @@ le jeu** : pas de clic, pas de touche simulée. Il regarde et il parle, c'est to
   que tu reprends la parole. Avec `micro_continu = true`, plus besoin de touche : parle quand tu veux.
 - **Il réagit au jeu** : morts, progrès et messages `@compagnon` du chat, comme avec l'autre moteur.
 - **Il commente de lui-même** : au plus toutes les 45 s (`cooldown_spontane`), et seulement si l'écran a
-  changé. Il a la consigne de ne parler que s'il voit quelque chose de **nouveau**, et il peut choisir de
-  se taire. S'il commence quand même par « rien à signaler », sa voix est coupée avant que tu l'entendes.
+  changé. Il parle quand il voit quelque chose de **nouveau**, ou pour relancer la conversation si vous ne
+  vous êtes pas parlé depuis plusieurs minutes (une question, une idée pour le royaume, un souvenir).
+  Sinon il se tait. S'il commence quand même par « rien à signaler », sa voix est coupée avant que tu l'entendes.
+- **Il voit l'écran actuel** : une capture fraîche part au moment où tu appuies sur V, et une seconde avant
+  chaque événement ou coup d'œil (le temps qu'il la « voie »). La console affiche « écran capturé et envoyé ».
+- **Il se souvient d'une partie à l'autre** : tes morts, tes progrès, vos échanges et ses remarques sont gardés
+  dans `souvenirs.json`. Au lancement suivant, il peut y faire allusion (« encore noyé, comme hier ! ») et te
+  rappeler tes projets (« tu m'avais parlé du port, on s'y met ? »). Pour lui faire tout oublier, supprime ce fichier.
 - **La conversation continue** : Google coupe la connexion toutes les ~10 minutes, le compagnon se
   reconnecte tout seul et reprend la conversation là où elle en était.
-- Dans la console : `[Moi]` (ce qu'il a compris de ta voix), `[Lui]` (ce qu'il a dit), `[Regard]`, `[Jeu]`.
+- Dans la console : `[Moi]` (ce qu'il a compris de ta voix), `[Lui]` (ce qu'il a dit), `[Regard]`, `[Jeu]`,
+  `[Vidéo]`. Le numéro de version s'affiche au démarrage : vérifie-le après une mise à jour.
 
 ### Réglages (section `[gemini]` de `config.toml`)
 
@@ -56,6 +63,8 @@ le jeu** : pas de clic, pas de touche simulée. Il regarde et il parle, c'est to
   produits. Ne montre rien de personnel à l'écran pendant que le compagnon tourne.
 - La proactivité utilise la version « v1alpha » de l'API Google. Si elle est refusée, le compagnon se
   reconnecte automatiquement sans elle.
+- Testé en conditions réelles le 16/10/2026 (images d'exemple, questions écrites et parlées, événements,
+  coups d'œil) : voix lancée 2 à 3 s après la fin de ta phrase.
 
 Pour revenir à l'ancien moteur : `choix = "groq"` dans `[moteur]`, ou `python compagnon.py --moteur groq`.
 

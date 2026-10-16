@@ -7,3 +7,5 @@ __pycache__/
 .consommation_groq.json
 exemples/faux_latest.log
 derniere_capture.jpg
+souvenirs.json
+souvenirs.tmp

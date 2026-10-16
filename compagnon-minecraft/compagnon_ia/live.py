@@ -23,6 +23,7 @@ from .capture import CaptureEcran, CaptureTest, difference, empreinte, encoder_j
 from .cerveau import GUIDE_ECRAN
 from .config import RACINE, Config, chemin_log, lire_texte
 from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
+from .souvenirs import Souvenirs
 from .touches import ToucheParler
 from .voix import Lecteur
 
@@ -33,10 +34,12 @@ VIDEO_MAX_SANS_ENVOI = 10.0  # même si l'écran ne bouge pas, une image toutes 
 RESOLUTIONS = {"basse": "MEDIA_RESOLUTION_LOW", "moyenne": "MEDIA_RESOLUTION_MEDIUM",
                "haute": "MEDIA_RESOLUTION_HIGH"}
 
-COUP_D_OEIL = ("[Coup d'œil] Regarde l'image la plus récente, elle vient d'arriver. Ne parle que s'il se passe "
-               "quelque chose de nouveau ou d'intéressant depuis ton dernier commentaire ; sinon ne dis absolument rien.")
-# Temps laissé au modèle pour « voir » la capture fraîche avant de recevoir la question (l'ordre n'est pas garanti).
-DELAI_IMAGE = 0.4
+COUP_D_OEIL = ("[Coup d'œil] Regarde l'image la plus récente, elle vient d'arriver. Parle s'il se passe quelque "
+               "chose de nouveau ou d'intéressant, ou pour relancer la conversation si vous ne vous êtes pas parlé "
+               "depuis longtemps ; sinon ne dis absolument rien. Dernier échange avec lui : il y a {depuis}.")
+# Temps laissé au modèle pour « voir » la capture fraîche avant de recevoir la question. Mesuré le 16/10/2026 :
+# avec 0 à 0,3 s il répond encore sur l'image précédente, avec 1 s il répond sur la bonne.
+DELAI_IMAGE = 1.0
 
 CONSIGNES_LIVE = """\
 ## Ce que tu reçois
@@ -51,24 +54,42 @@ CONSIGNES_LIVE = """\
 Dans le jeu, son pseudo est {pseudo}.
 
 ## Commentaires spontanés
-Pour un « [Coup d'œil] », regarde les dernières images. Ne parle que s'il se passe quelque chose de nouveau ou
+Pour un « [Coup d'œil] », regarde l'image la plus récente. Parle s'il se passe quelque chose de nouveau ou
 d'intéressant depuis ton dernier commentaire : un danger, une découverte, une construction qui avance, une bêtise à
-charrier, une idée pour le royaume. Ne répète jamais un commentaire déjà fait, varie les sujets et le ton. S'il n'y a
-rien de neuf, ne dis absolument rien : pas même « rien à signaler ».
+charrier. Si rien de neuf ne se passe mais que vous ne vous êtes pas parlé depuis plusieurs minutes, tu peux relancer
+la conversation : une question sur ce qu'il fait, une idée pour le royaume, un souvenir. Ne répète jamais un
+commentaire déjà fait, varie les sujets et le ton. Sinon, ne dis absolument rien.
+Important : ici tu parles à voix haute. La règle « réponds exactement SILENCE » ne s'applique pas : quand tu n'as rien
+à dire, tu ne prononces aucun mot (ni « silence », ni « rien à signaler »).
 
 ## Lire l'écran
 {guide_ecran}
+
+## Être un vrai compagnon
+- Tu es son ami de route, pas un assistant : tu as des avis tranchés et des goûts (tu adores les remparts en pierre
+  taillée, tu te méfies des grottes, tu détestes les creepers), et des souvenirs de vieux routier à glisser en une phrase.
+- Fais vivre la conversation : pose-lui des questions sur ce qu'il fait et sur ses projets, propose des objectifs concrets
+  pour le royaume (un port, un barrage, une route pavée, une tour de guet, donner un nom à un lieu), rappelle-lui les
+  projets en cours.
+- Fais le lien avec ce qui s'est passé avant, dans cette partie ou dans tes souvenirs : une mort ridicule, une
+  construction, une promesse qu'il t'a faite.
+- Varie sans cesse : humour, conseil, encouragement, question, idée, petite histoire. Ne commence jamais deux réponses de
+  suite par les mêmes mots et ne refais pas une blague déjà faite.
+- Appelle-le parfois par son pseudo, « Seigneur » ou « mon grand », mais pas à chaque phrase.
 
 ## Ta façon de parler
 Toujours en français courant, 1 à 2 phrases (3 au maximum). Ne décris pas l'écran comme un commentateur : réagis comme
 un compagnon qui joue à côté de lui. Si tu n'es pas sûr de ce que tu vois, ne l'invente pas."""
 
 
-def construire_consignes(cfg: Config, personnalite: str, chronique: str) -> str:
+def construire_consignes(cfg: Config, personnalite: str, chronique: str, souvenirs: str = "") -> str:
     parties = [personnalite.strip(),
                CONSIGNES_LIVE.format(pseudo=cfg.pseudo or "inconnu", guide_ecran=GUIDE_ECRAN.strip())]
     if chronique.strip():
         parties.append("## Chronique de la partie (ce qui s'est passé jusqu'ici)\n" + chronique.strip())
+    if souvenirs.strip():
+        parties.append("## Tes souvenirs des parties précédentes (du plus ancien au plus récent)\n" + souvenirs.strip()
+                       + "\nTu peux y faire allusion naturellement (« comme la dernière fois… »), sans les réciter.")
     return "\n\n".join(p for p in parties if p)
 
 
@@ -102,7 +123,13 @@ def construire_config(types, cfg: Config, consignes: str, handle: str | None = N
     return types.LiveConnectConfig(**reglages)
 
 
+def nettoyer_transcription(texte: str) -> str:
+    """Retire les marqueurs techniques que Google glisse parfois (« <no speech> », « {pause} »…)."""
+    return " ".join(re.sub(r"<[^>]*>|\{[^}]*\}", " ", texte).split())
+
+
 def _normaliser(texte: str) -> str:
+    texte = nettoyer_transcription(texte)
     sans_accents = unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode("ascii")
     return " ".join(re.sub(r"[^a-z ]", " ", sans_accents.lower()).split())
 
@@ -117,11 +144,14 @@ class PorteSilenceLive:
     def __init__(self):
         self.texte = ""
         self.etat: bool | None = None
+        self.spontane = True  # passe à False si le joueur parle avant la réponse
 
     def ajouter(self, morceau: str) -> None:
         if self.etat is not None:
             return
         self.texte += morceau
+        if "<" in self.texte and ">" not in self.texte.split("<")[-1]:
+            return  # marqueur technique pas encore refermé : on attend
         n = _normaliser(self.texte)
         if any(n.startswith(s) for s in self.SILENCES):
             self.etat = True
@@ -137,6 +167,15 @@ class PorteSilenceLive:
 
 class ErreurGemini(Exception):
     """Erreur qui empêche de continuer (clé refusée…), le message s'adresse à l'utilisateur."""
+
+
+def est_silence_parle(texte: str) -> bool:
+    """Vrai si la réponse n'est qu'un « silence » / « rien à signaler » ou un simple marqueur comme
+    « <no speech> » (à ne pas jouer ni mémoriser)."""
+    if texte.strip() and not nettoyer_transcription(texte):
+        return True
+    n = _normaliser(texte)
+    return bool(n) and any(n.startswith(s) and len(n) <= len(s) + 12 for s in PorteSilenceLive.SILENCES)
 
 
 def _court(message: str, longueur: int = 160) -> str:
@@ -172,14 +211,16 @@ def creer_client(cle_api: str, avancee: bool):
 
 
 class CompagnonLive:
-    def __init__(self, cfg: Config, *, mode_test: bool = False, micro=None, lecteur=None, capture=None, client=None):
+    def __init__(self, cfg: Config, *, mode_test: bool = False, micro=None, lecteur=None, capture=None, client=None,
+                 souvenirs: Souvenirs | None = None):
         self.cfg = cfg
         self.mode_test = mode_test
         if mode_test and not cfg.pseudo:
             cfg.pseudo = PSEUDO_TEST
         self.chemin_log = fichier_log_test() if mode_test else chemin_log(cfg)
+        self.souvenirs = souvenirs if souvenirs is not None else Souvenirs(RACINE / "souvenirs.json")
         self.consignes = construire_consignes(cfg, lire_texte(RACINE / "personnalite.md"),
-                                              lire_texte(RACINE / "chronique.md"))
+                                              lire_texte(RACINE / "chronique.md"), self.souvenirs.resume())
         self.micro = micro if micro is not None else Micro(cfg.micro)
         self.lecteur = lecteur or Lecteur(cfg.sortie_audio)
         if capture is None:
@@ -200,6 +241,7 @@ class CompagnonLive:
         self._file_envoi: asyncio.Queue = asyncio.Queue()
         self._verrou_envoi = asyncio.Lock()
         self._activite_ouverte = False
+        self._textes_en_attente: list[tuple[str, bool]] = []  # reçus pendant que tu parlais
         self._pousse = False
         self._preroll: deque[bytes] = deque(maxlen=6)  # ~0,3 s avant l'appui
         self._taches: list[asyncio.Task] = []
@@ -210,6 +252,9 @@ class CompagnonLive:
         self._tampon_audio: list[np.ndarray] = []
         self._modele_actif = False
         self._t_relache: float | None = None
+        self._reponse_attendue_depuis: float | None = None  # question envoyée, réponse pas encore finie
+        self._question_ecrite = ""  # phrase tapée en attente de sa réponse (pour les souvenirs)
+        self._dernier_echange: float | None = None  # dernière fois que le joueur lui a parlé ou écrit
         # Regard
         self._derniere_empreinte_video = None
         self._t_derniere_video = float("-inf")
@@ -284,6 +329,7 @@ class CompagnonLive:
         log.info("  Modèle       : %s, voix « %s »", self.cfg.gemini_modele, self.cfg.gemini_voix)
         log.info("  Vidéo        : %s, %.0f image(s)/s au plus", self.capture.description(), self.cfg.images_par_seconde)
         log.info("  Journal jeu  : %s%s", self.chemin_log, "" if self.chemin_log.exists() else " (pas encore là)")
+        log.info("  Souvenirs    : %d souvenir(s) des parties précédentes", len(self.souvenirs.elements))
         if self.cfg.commentaires_spontanes:
             log.info("  Spontané     : coup d'œil au plus toutes les %.0f s quand l'écran a changé",
                      self.cfg.cooldown_spontane)
@@ -418,20 +464,28 @@ class CompagnonLive:
                 elif genre == "fin":
                     if self._activite_ouverte:
                         self._activite_ouverte = False
+                        self._reponse_attendue_depuis = time.monotonic()
                         await self._envoyer(activity_end=types.ActivityEnd())
+                    for texte, spontane in self._textes_en_attente:
+                        self._file_envoi.put_nowait(("texte", texte, spontane))
+                    self._textes_en_attente.clear()
                 elif genre == "texte":
                     _, texte, spontane = element
-                    entourer = not self.cfg.micro_continu and not self._activite_ouverte
+                    if self._activite_ouverte:
+                        # Google refuse un texte au milieu d'une prise de parole (erreur 1007, vérifié le
+                        # 16/10/2026) : il partira quand tu relâcheras la touche.
+                        if not spontane:
+                            self._textes_en_attente.append((texte, spontane))
+                        continue
+                    # Le texte part seul, sans signal de début/fin de parole (sinon : erreur 1007).
                     self._porte = PorteSilenceLive() if spontane else None
-                    if entourer:
-                        await self._envoyer(activity_start=types.ActivityStart())
+                    if not spontane:
+                        self._reponse_attendue_depuis = time.monotonic()
                     raison = "coup d'œil" if spontane else "message"
                     if await self._envoyer_image_fraiche(raison):  # il voit l'écran actuel avant le texte
                         await asyncio.sleep(self.delai_image)
                     if not await self._envoyer(text=texte):
                         log.warning("[Gemini] pas connecté pour l'instant : message non transmis.")
-                    if entourer:
-                        await self._envoyer(activity_end=types.ActivityEnd())
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -568,28 +622,42 @@ class CompagnonLive:
         self._tampon_audio.clear()
 
     def _fin_de_tour(self) -> None:
-        spontane = self._porte is not None
-        silence = False
-        if spontane:
+        spontane = self._porte is not None and self._porte.spontane
+        silence = est_silence_parle(self._texte_lui)
+        if self._porte is not None:
             self._porte.terminer()
-            silence = bool(self._porte.etat)
+            silence = silence or bool(self._porte.etat)
             if silence:
                 self._tampon_audio.clear()
             else:
                 self._vider_tampon()
-        moi, lui = self._texte_moi.strip(), self._texte_lui.strip()
+        moi, lui = nettoyer_transcription(self._texte_moi), nettoyer_transcription(self._texte_lui)
         if moi:
             log.info("[Moi]    %s", moi)
         if lui and not silence:
             log.info("[Lui]    %s%s", "(spontané) " if spontane else "", lui)
             self._fin_parole = time.monotonic()
+            question = moi or self._question_ecrite
+            if question or not spontane:
+                self._dernier_echange = time.monotonic()
+            if question:
+                self.souvenirs.ajouter("echange", f"le seigneur : « {question} » / toi : « {lui} »")
+            else:
+                self.souvenirs.ajouter("remarque", lui)
+            self._question_ecrite = ""
         elif spontane:
             log.info("[Regard] rien d'intéressant, il se tait")
         self._reinitialiser_tour()
 
-    def _reinitialiser_tour(self) -> None:
+    def _reinitialiser_tour(self, garder_porte: bool = False) -> None:
+        """Remet à zéro le tour en cours. garder_porte : le joueur parle juste après un coup d'œil dont la
+        réponse n'est pas encore décidée ; le filtre « silence » reste actif pour cette réponse."""
+        porte = self._porte if garder_porte and self._porte is not None and self._porte.etat is None else None
+        if porte is not None:
+            porte.spontane = False
+        self._reponse_attendue_depuis = None
         self._texte_moi = self._texte_lui = ""
-        self._porte = None
+        self._porte = porte
         self._tampon_audio.clear()
         self._modele_actif = False
 
@@ -602,7 +670,7 @@ class CompagnonLive:
             return
         self._pousse = True
         self.lecteur.interrompre()  # il se tait tout de suite
-        self._reinitialiser_tour()
+        self._reinitialiser_tour(garder_porte=True)
         self._file_envoi.put_nowait(("debut",))
         log.info("[Micro]  j'écoute…")
 
@@ -616,12 +684,15 @@ class CompagnonLive:
 
     def _phrase_tapee(self, ligne: str) -> None:
         self.lecteur.interrompre()
-        self._reinitialiser_tour()
+        self._reinitialiser_tour(garder_porte=True)
         log.info("[Moi]    %s   (écrit dans la console)", ligne)
+        self._question_ecrite = ligne
         self._t_relache = time.perf_counter()
+        self._fin_parole = time.monotonic()
         self._file_envoi.put_nowait(("texte", f"[Écrit] {ligne}", False))
 
     def _sur_evenement(self, evenement: EvenementJeu) -> None:
+        self.souvenirs.ajouter(evenement.genre, evenement.detail if evenement.genre != "mort" else evenement.texte)
         if evenement.genre == "chat":
             log.info("[Chat]   %s", evenement.detail or "(t'interpelle)")
             texte = f"[Chat] {evenement.detail or '(il t interpelle sans rien ajouter)'}"
@@ -632,7 +703,8 @@ class CompagnonLive:
             log.info("[Jeu]    progrès : %s", evenement.texte)
             texte = (f"[Événement] Il vient d'obtenir le progrès « {evenement.detail} ». "
                      f"Message du jeu : « {evenement.texte} »")
-        self._reinitialiser_tour()
+        self._reinitialiser_tour(garder_porte=True)
+        self._fin_parole = time.monotonic()
         self._file_envoi.put_nowait(("texte", texte, False))
 
     # ------------------------------------------------------------------ commentaires spontanés
@@ -642,6 +714,10 @@ class CompagnonLive:
         if self._modele_actif or self.lecteur.parle:
             self._fin_parole = time.monotonic()
             return "il parle"
+        if self._reponse_attendue_depuis is not None and time.monotonic() - self._reponse_attendue_depuis < 15:
+            return "il prépare sa réponse"
+        if not self._file_envoi.empty():
+            return "envoi en cours"
         maintenant = time.monotonic()
         if maintenant - self._dernier_spontane < self.cfg.cooldown_spontane:
             return "cooldown"
@@ -665,4 +741,10 @@ class CompagnonLive:
             self._empreinte_coup_d_oeil = emp
             self._dernier_spontane = time.monotonic()
             log.info("[Regard] coup d'œil")
-            self._file_envoi.put_nowait(("texte", COUP_D_OEIL, True))
+            self._file_envoi.put_nowait(("texte", COUP_D_OEIL.format(depuis=self._depuis_dernier_echange()), True))
+
+    def _depuis_dernier_echange(self) -> str:
+        if self._dernier_echange is None:
+            return "aucun échange depuis le lancement"
+        minutes = int((time.monotonic() - self._dernier_echange) // 60)
+        return "moins d'une minute" if minutes < 1 else f"{minutes} minute{'s' if minutes > 1 else ''}"

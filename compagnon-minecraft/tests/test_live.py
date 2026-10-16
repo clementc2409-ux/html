@@ -7,7 +7,8 @@ import numpy as np
 from google.genai import types
 
 from compagnon_ia.live import (COUP_D_OEIL, CompagnonLive, PorteSilenceLive, construire_config,
-                               construire_consignes)
+                               construire_consignes, est_silence_parle)
+from compagnon_ia.souvenirs import Souvenirs
 from tests.faux import FausseCapture, FauxLecteur, FauxMicro, config_test
 
 
@@ -22,7 +23,7 @@ class FausseSession:
 
 def creer(**reglages):
     c = CompagnonLive(config_test(**reglages), micro=FauxMicro(), lecteur=FauxLecteur(), capture=FausseCapture(),
-                      client=object())
+                      client=object(), souvenirs=Souvenirs(None))
     c.micro_actif = True
     c.fichier_capture = None
     c.delai_image = 0
@@ -103,7 +104,8 @@ class TestEnvoi(unittest.TestCase):
                          ["activity_start", ("audio", b"avant"), ("audio", b"pendant"), "activity_end"])
         self.assertLess(envois.index("activity_start"), envois.index("video"))
 
-    def test_evenement_envoye_comme_texte_entoure(self):
+    def test_evenement_envoye_comme_texte_seul(self):
+        # Pas de activity_start/end autour d'un texte : Google répond 1007 (vérifié le 16/10/2026).
         from compagnon_ia.journal_jeu import EvenementJeu
 
         async def scenario():
@@ -113,9 +115,22 @@ class TestEnvoi(unittest.TestCase):
             return c._session.envois
 
         envois = asyncio.run(scenario())
-        self.assertEqual([cle for cle, _ in envois], ["activity_start", "video", "text", "activity_end"])
-        self.assertEqual(envois[1][1].mime_type, "image/jpeg")
-        self.assertIn("vient de mourir", envois[2][1])
+        self.assertEqual([cle for cle, _ in envois], ["video", "text"])
+        self.assertEqual(envois[0][1].mime_type, "image/jpeg")
+        self.assertIn("vient de mourir", envois[1][1])
+
+    def test_texte_pendant_que_tu_parles_attend_la_fin(self):
+        async def scenario():
+            c = creer()
+            c._appui()
+            c._file_envoi.put_nowait(("texte", "[Chat] coucou", False))
+            c._file_envoi.put_nowait(("texte", COUP_D_OEIL, True))  # un coup d'œil, lui, est abandonné
+            c._relache()
+            await vider_file(c)
+            return [cle for cle, _ in c._session.envois]
+
+        envois = [e for e in asyncio.run(scenario()) if e != "video"]
+        self.assertEqual(envois, ["activity_start", "activity_end", "text"])
 
     def test_micro_continu_sans_signaux(self):
         async def scenario():
@@ -187,7 +202,86 @@ class TestReception(unittest.TestCase):
         self.assertEqual(len(asyncio.run(scenario()).lecteur.joue), 3)
 
 
+class TestSouvenirs(unittest.TestCase):
+    def test_evenements_et_echanges_memorises(self):
+        from compagnon_ia.journal_jeu import EvenementJeu
+
+        async def scenario():
+            c = creer()
+            c._sur_evenement(EvenementJeu("mort", "Arthur s'est noyé"))
+            c._traiter(message(texte_moi="Tu te souviens ?"))
+            c._traiter(message(audio=SON, texte_lui="Comment oublier, mon grand !", fini=True))
+            return c.souvenirs
+
+        souvenirs = asyncio.run(scenario())
+        self.assertEqual([e["genre"] for e in souvenirs.elements], ["mort", "echange"])
+        resume = souvenirs.resume()
+        self.assertIn("mort : Arthur s'est noyé", resume)
+        self.assertIn("« Tu te souviens ? »", resume)
+
+    def test_fichier_relu_au_demarrage(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / "souvenirs.json"
+            Souvenirs(chemin).ajouter("progres", "Diamants !")
+            relu = Souvenirs(chemin)
+            self.assertEqual(relu.elements[0]["texte"], "Diamants !")
+            consignes = construire_consignes(config_test(), "perso", "", relu.resume())
+            self.assertIn("progrès : Diamants !", consignes)
+
+
+class TestCourseCoupDOeil(unittest.TestCase):
+    def test_tu_parles_juste_apres_un_coup_d_oeil(self):
+        # Vu en vrai : coup d'œil puis question 1 s après -> il a prononcé « SILENCE ».
+        async def scenario():
+            c = creer()
+            c._porte = PorteSilenceLive()          # coup d'œil envoyé, réponse pas encore arrivée
+            c._phrase_tapee("Tu te souviens d'hier ?")
+            c._traiter(message(audio=SON, texte_lui="SILENCE"))
+            c._traiter(message(fini=True))
+            return c
+
+        c = asyncio.run(scenario())
+        self.assertEqual(c.lecteur.joue, [])
+        self.assertEqual(c.souvenirs.elements, [])
+
+    def test_vraie_reponse_apres_coup_d_oeil_jouee_et_pas_spontanee(self):
+        async def scenario():
+            c = creer()
+            c._porte = PorteSilenceLive()
+            c._phrase_tapee("On fait quoi ?")
+            with self.assertLogs("compagnon", level="INFO") as journaux:
+                c._traiter(message(audio=SON, texte_lui="Le port, pardi !", fini=True))
+            return c, journaux.output
+
+        c, journaux = asyncio.run(scenario())
+        self.assertEqual(len(c.lecteur.joue), 1)
+        self.assertFalse(any("spontané" in l for l in journaux))
+        self.assertEqual(c.souvenirs.elements[0]["genre"], "echange")
+
+    def test_silence_parle(self):
+        for texte in ("SILENCE", "Silence.", "Rien à signaler.", "rien de neuf ici", "<no speech>{pause}"):
+            self.assertTrue(est_silence_parle(texte), texte)
+        for texte in ("Silence, on tourne ! Le port avance bien, Seigneur.", "Rien ne vaut un bon château", ""):
+            self.assertFalse(est_silence_parle(texte), texte)
+
+
 class TestPorte(unittest.TestCase):
+    def test_marqueur_technique_coupe(self):
+        # Vu en vrai : la transcription « <no speech>{pause} » ne doit être ni jouée ni affichée.
+        async def scenario():
+            c = creer()
+            c._porte = PorteSilenceLive()
+            c._traiter(message(audio=SON, texte_lui="<no speech>"))
+            c._traiter(message(texte_lui="{pause}", fini=True))
+            return c
+
+        c = asyncio.run(scenario())
+        self.assertEqual(c.lecteur.joue, [])
+        self.assertEqual(c.souvenirs.elements, [])
+
     def test_decisions(self):
         for texte, attendu in (("Silence.", True), ("Rien de neuf", True), ("Ah, un village !", False),
                                ("Rien ne vaut un bon château", False)):
@@ -214,7 +308,9 @@ class TestRegard(unittest.TestCase):
             return [e for e in list(c._file_envoi._queue) if e[0] == "texte"]
 
         textes = asyncio.run(scenario())
-        self.assertEqual(textes, [("texte", COUP_D_OEIL, True)])
+        self.assertEqual(len(textes), 1)
+        self.assertTrue(textes[0][1].startswith("[Coup d'œil]") and textes[0][2])
+        self.assertIn("aucun échange depuis le lancement", textes[0][1])
 
 
 if __name__ == "__main__":
