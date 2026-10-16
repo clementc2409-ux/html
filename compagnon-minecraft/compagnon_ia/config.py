@@ -29,9 +29,10 @@ class Config:
     gemini_voix: str = "Algenib"
     micro_continu: bool = False
     images_par_seconde: float = 1.0
-    largeur_video: int = 1024
-    resolution_video: str = "moyenne"
+    largeur_video: int = 1280
+    resolution_video: str = "auto"
     proactivite: bool = True
+    bande_capteur: bool = True
     # [groq]
     cle_api: str = ""
     modele_transcription: str = "whisper-large-v3-turbo"
@@ -53,6 +54,7 @@ class Config:
     pseudo: str = ""
     chemin_log: str = ""
     mot_cle_chat: str = "@compagnon"
+    chemin_etat: str = ""
     # [regard]
     commentaires_spontanes: bool = True
     intervalle_capture: float = 20.0
@@ -76,12 +78,12 @@ SECTIONS: dict[str, tuple[str, ...] | dict[str, str]] = {
     "gemini": {"cle_api": "gemini_cle_api", "modele": "gemini_modele", "voix": "gemini_voix",
                "micro_continu": "micro_continu", "images_par_seconde": "images_par_seconde",
                "largeur_video": "largeur_video", "resolution_video": "resolution_video",
-               "proactivite": "proactivite"},
+               "proactivite": "proactivite", "bande_capteur": "bande_capteur"},
     "groq": ("cle_api", "modele_transcription", "modele_vision", "effort_raisonnement",
              "temperature", "max_jetons_reponse"),
     "parole": ("touche", "micro", "langue", "vocabulaire"),
     "voix": ("voix", "debit", "volume", "sortie_audio"),
-    "jeu": ("pseudo", "chemin_log", "mot_cle_chat"),
+    "jeu": ("pseudo", "chemin_log", "mot_cle_chat", "chemin_etat"),
     "regard": ("commentaires_spontanes", "intervalle_capture", "cooldown_spontane",
                "seuil_changement", "fenetre_minecraft", "suivre_fenetre", "ecran", "largeur_image", "qualite_jpeg"),
     "memoire": ("echanges",),
@@ -176,6 +178,13 @@ def chemin_log(cfg: Config) -> Path:
         # Variable Windows absente (ex. %APPDATA% sur Mac/Linux) : chemin standard du système.
         return chemin_log_par_defaut()
     return chemin
+
+
+def chemin_etat(cfg: Config, chemin_du_log: Path) -> Path:
+    """Fichier d'état écrit par le mod : par défaut <dossier du jeu>/compagnon/etat.json, à côté de logs/."""
+    if cfg.chemin_etat.strip():
+        return developper_chemin(cfg.chemin_etat.strip())
+    return chemin_du_log.parent.parent / "compagnon" / "etat.json"
 
 
 def lire_texte(chemin: Path) -> str:

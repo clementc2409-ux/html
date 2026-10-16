@@ -68,7 +68,9 @@ class TestConfiguration(unittest.TestCase):
         self.assertEqual(config.realtime_input_config.turn_coverage, types.TurnCoverage.TURN_INCLUDES_ALL_INPUT)
         self.assertIsNotNone(config.context_window_compression.sliding_window)
         self.assertTrue(config.proactivity.proactive_audio)
-        self.assertEqual(config.media_resolution, types.MediaResolution.MEDIA_RESOLUTION_MEDIUM)
+        self.assertIsNone(config.media_resolution)  # "auto" : réglage laissé à Google
+        haute = construire_config(types, config_test(resolution_video="haute"), "c")
+        self.assertEqual(haute.media_resolution, types.MediaResolution.MEDIA_RESOLUTION_HIGH)
 
     def test_config_micro_continu_et_minimale(self):
         config = construire_config(types, config_test(micro_continu=True), "c", handle="abc", minimale=True)
@@ -115,9 +117,9 @@ class TestEnvoi(unittest.TestCase):
             return c._session.envois
 
         envois = asyncio.run(scenario())
-        self.assertEqual([cle for cle, _ in envois], ["video", "text"])
+        self.assertEqual([cle for cle, _ in envois], ["video", "video", "text"])  # capture envoyée deux fois
         self.assertEqual(envois[0][1].mime_type, "image/jpeg")
-        self.assertIn("vient de mourir", envois[1][1])
+        self.assertIn("vient de mourir", envois[2][1])
 
     def test_texte_pendant_que_tu_parles_attend_la_fin(self):
         async def scenario():
@@ -140,7 +142,16 @@ class TestEnvoi(unittest.TestCase):
             await vider_file(c)
             return [cle for cle, _ in c._session.envois]
 
-        self.assertEqual(asyncio.run(scenario()), ["audio", "video", "text"])
+        self.assertEqual(asyncio.run(scenario()), ["audio", "video", "video", "text"])
+
+    def test_alerte_envoyee_sans_attendre(self):
+        async def scenario():
+            c = creer()
+            c._file_envoi.put_nowait(("texte", "[Alerte] Creeper à 3 blocs derrière lui !", False, True))
+            await vider_file(c)
+            return [cle for cle, _ in c._session.envois]
+
+        self.assertEqual(asyncio.run(scenario()), ["text"])
 
 
 class TestReception(unittest.TestCase):

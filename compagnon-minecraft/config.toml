@@ -33,9 +33,14 @@ micro_continu = false
 # Images de la fenêtre Minecraft envoyées par seconde (1 au maximum). Seulement quand l'écran change.
 images_par_seconde = 1.0
 
-# Taille des images envoyées et précision de l'analyse ("basse", "moyenne" ou "haute").
-largeur_video = 1024
-resolution_video = "moyenne"
+# Taille des images envoyées, et précision de l'analyse : "auto" (conseillé, Google choisit),
+# "basse", "moyenne" ou "haute".
+largeur_video = 1280
+resolution_video = "auto"
+
+# true = colle sous chaque image une bande « CAPTEUR » avec les infos exactes du jeu (vie, faim,
+# monstres proches même derrière toi…). Nécessite le mod « compagnon » (voir README).
+bande_capteur = true
 
 # true = il peut choisir de se taire quand il n'a rien d'intéressant à dire.
 proactivite = true
@@ -116,6 +121,10 @@ chemin_log = '%APPDATA%\.minecraft\logs\latest.log'
 
 # Écris ce mot au début d'un message du chat du jeu pour parler au compagnon par écrit.
 mot_cle_chat = "@compagnon"
+
+# Fichier d'état écrit par le mod « compagnon ». "" = automatique : dossier « compagnon » à côté
+# du dossier « logs » ci-dessus (ex. %APPDATA%\.minecraft\compagnon\etat.json).
+chemin_etat = ""
 
 
 [regard]

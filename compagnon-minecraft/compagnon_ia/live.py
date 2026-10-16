@@ -21,7 +21,8 @@ from . import VERSION
 from .audio import Micro
 from .capture import CaptureEcran, CaptureTest, difference, empreinte, encoder_jpeg, jeu_au_premier_plan
 from .cerveau import GUIDE_ECRAN
-from .config import RACINE, Config, chemin_log, lire_texte
+from .config import RACINE, Config, chemin_etat, chemin_log, lire_texte
+from .etat_jeu import Alertes, CapteurEtat, ajouter_bande
 from .journal_jeu import PSEUDO_TEST, AnalyseurLog, EvenementJeu, SurveillantLog, fichier_log_test
 from .souvenirs import Souvenirs
 from .touches import ToucheParler
@@ -31,8 +32,13 @@ log = logging.getLogger("compagnon")
 
 PAUSE_APRES_PAROLE = 8.0     # secondes de calme après une réponse avant un commentaire spontané
 VIDEO_MAX_SANS_ENVOI = 10.0  # même si l'écran ne bouge pas, une image toutes les 10 s
+# "auto" : on laisse Google choisir. Mesuré le 16/10/2026 : en forçant "moyenne", il arrivait (1 fois sur 6)
+# qu'il réponde « je ne peux pas voir ton écran ».
 RESOLUTIONS = {"basse": "MEDIA_RESOLUTION_LOW", "moyenne": "MEDIA_RESOLUTION_MEDIUM",
                "haute": "MEDIA_RESOLUTION_HIGH"}
+# Réponses qui montrent qu'il n'a pas reçu l'image : on la lui renvoie.
+NE_VOIT_PAS = ("ne peux pas voir", "ne vois pas ton ecran", "pas d image", "pas acces a ton ecran", "aucune image",
+               "pas fourni d image", "ne peux pas acceder")
 
 COUP_D_OEIL = ("[Coup d'œil] Regarde l'image la plus récente, elle vient d'arriver. Parle s'il se passe quelque "
                "chose de nouveau ou d'intéressant, ou pour relancer la conversation si vous ne vous êtes pas parlé "
@@ -61,6 +67,14 @@ la conversation : une question sur ce qu'il fait, une idée pour le royaume, un 
 commentaire déjà fait, varie les sujets et le ton. Sinon, ne dis absolument rien.
 Important : ici tu parles à voix haute. La règle « réponds exactement SILENCE » ne s'applique pas : quand tu n'as rien
 à dire, tu ne prononces aucun mot (ni « silence », ni « rien à signaler »).
+
+## Le capteur et les alertes
+Quand le mod « compagnon » est installé dans le jeu, une bande noire « CAPTEUR (infos exactes) » est collée sous
+chaque image : sa vie, sa faim, son armure, le biome, l'heure, l'objet en main, ce qu'il vise et les monstres proches
+avec leur distance et leur direction (même derrière lui, hors de l'écran). Ces infos sont exactes : fie-toi à elles
+plutôt qu'à l'image pour ces points, mais ne les récite pas.
+« [Alerte] … » : un danger ou un changement important vient d'être détecté par le capteur. Préviens-le TOUT DE SUITE,
+en une phrase courte et naturelle, comme un ami qui crie « attention, derrière toi ! ».
 
 ## Lire l'écran
 {guide_ecran}
@@ -118,8 +132,8 @@ def construire_config(types, cfg: Config, consignes: str, handle: str | None = N
     if not minimale:
         if cfg.proactivite:  # lui permet de rester silencieux quand il n'a rien d'intéressant à dire
             reglages["proactivity"] = types.ProactivityConfig(proactive_audio=True)
-        reglages["media_resolution"] = getattr(
-            types.MediaResolution, RESOLUTIONS.get(cfg.resolution_video, "MEDIA_RESOLUTION_MEDIUM"))
+        if cfg.resolution_video in RESOLUTIONS:
+            reglages["media_resolution"] = getattr(types.MediaResolution, RESOLUTIONS[cfg.resolution_video])
     return types.LiveConnectConfig(**reglages)
 
 
@@ -218,6 +232,11 @@ class CompagnonLive:
         if mode_test and not cfg.pseudo:
             cfg.pseudo = PSEUDO_TEST
         self.chemin_log = fichier_log_test() if mode_test else chemin_log(cfg)
+        self.capteur = CapteurEtat(RACINE / "exemples" / "faux_etat.json" if mode_test
+                                   else chemin_etat(cfg, self.chemin_log))
+        self._alertes = Alertes()
+        self._capteur_actif = False
+        self._dernier_renvoi_image = float("-inf")
         self.souvenirs = souvenirs if souvenirs is not None else Souvenirs(RACINE / "souvenirs.json")
         self.consignes = construire_consignes(cfg, lire_texte(RACINE / "personnalite.md"),
                                               lire_texte(RACINE / "chronique.md"), self.souvenirs.resume())
@@ -276,7 +295,8 @@ class CompagnonLive:
         threading.Thread(target=self._lire_console, daemon=True).start()
         surveillant = SurveillantLog(self.chemin_log, AnalyseurLog(self.cfg.pseudo, self.cfg.mot_cle_chat),
                                      self._sur_evenement)
-        for travail in (surveillant.tourner(), self._boucle_envoi(), self._boucle_video(), self._boucle_regard()):
+        for travail in (surveillant.tourner(), self._boucle_envoi(), self._boucle_video(), self._boucle_regard(),
+                        self._boucle_capteur()):
             self._taches.append(asyncio.create_task(travail))
         self._afficher_accueil()
         try:
@@ -330,6 +350,8 @@ class CompagnonLive:
         log.info("  Vidéo        : %s, %.0f image(s)/s au plus", self.capture.description(), self.cfg.images_par_seconde)
         log.info("  Journal jeu  : %s%s", self.chemin_log, "" if self.chemin_log.exists() else " (pas encore là)")
         log.info("  Souvenirs    : %d souvenir(s) des parties précédentes", len(self.souvenirs.elements))
+        log.info("  Capteur      : %s", self.capteur.chemin if self.capteur.lire() else
+                 f"en attente du mod compagnon ({self.capteur.chemin})")
         if self.cfg.commentaires_spontanes:
             log.info("  Spontané     : coup d'œil au plus toutes les %.0f s quand l'écran a changé",
                      self.cfg.cooldown_spontane)
@@ -470,7 +492,8 @@ class CompagnonLive:
                         self._file_envoi.put_nowait(("texte", texte, spontane))
                     self._textes_en_attente.clear()
                 elif genre == "texte":
-                    _, texte, spontane = element
+                    _, texte, spontane, *option = element
+                    urgent = bool(option and option[0])
                     if self._activite_ouverte:
                         # Google refuse un texte au milieu d'une prise de parole (erreur 1007, vérifié le
                         # 16/10/2026) : il partira quand tu relâcheras la touche.
@@ -482,7 +505,9 @@ class CompagnonLive:
                     if not spontane:
                         self._reponse_attendue_depuis = time.monotonic()
                     raison = "coup d'œil" if spontane else "message"
-                    if await self._envoyer_image_fraiche(raison):  # il voit l'écran actuel avant le texte
+                    if urgent:
+                        pass  # alerte : chaque seconde compte, le capteur a déjà tout dit
+                    elif await self._envoyer_image_fraiche(raison):  # il voit l'écran actuel avant le texte
                         await asyncio.sleep(self.delai_image)
                     if not await self._envoyer(text=texte):
                         log.warning("[Gemini] pas connecté pour l'instant : message non transmis.")
@@ -505,10 +530,15 @@ class CompagnonLive:
                 log.log(niveau, "[Vidéo]  %s", etat)
             self._etat_video = etat
 
+    def _preparer_image(self, image) -> bytes:
+        if self.cfg.bande_capteur and self.capteur.frais:
+            image = ajouter_bande(image, self.capteur.etat)
+        return encoder_jpeg(image, self.cfg.largeur_video, 80)
+
     async def _envoyer_image(self, image, emp=None) -> bool:
         from google.genai import types
 
-        jpeg = await asyncio.to_thread(encoder_jpeg, image, self.cfg.largeur_video, 80)
+        jpeg = await asyncio.to_thread(self._preparer_image, image)
         try:
             envoye = await self._envoyer(video=types.Blob(data=jpeg, mime_type="image/jpeg"))
         except Exception as e:
@@ -535,6 +565,9 @@ class CompagnonLive:
             return False
         envoye = await self._envoyer_image(image)
         if envoye:
+            # Une seconde copie, par sécurité : une image isolée est parfois ignorée par le modèle.
+            await asyncio.sleep(0.3)
+            await self._envoyer_image(image)
             log.info("[Vidéo]  écran capturé et envoyé avec %s", raison)
         elif self._session is None:
             log.warning("[Vidéo]  capture non envoyée (%s) : pas connecté à Gemini pour l'instant", raison)
@@ -549,6 +582,9 @@ class CompagnonLive:
             if not self.mode_test and not jeu_au_premier_plan(self.cfg.fenetre_minecraft):
                 self._signaler_video("en pause : la fenêtre au premier plan n'est pas Minecraft "
                                      "(normal si tu es sur le bureau ou dans ce terminal)")
+                continue
+            if self.capteur.menu_ou_pause:
+                self._signaler_video("en pause : un menu est ouvert ou le jeu est en pause (capteur)")
                 continue
             try:
                 image = await asyncio.to_thread(self.capture.capturer)
@@ -632,6 +668,11 @@ class CompagnonLive:
             else:
                 self._vider_tampon()
         moi, lui = nettoyer_transcription(self._texte_moi), nettoyer_transcription(self._texte_lui)
+        if any(x in _normaliser(lui) for x in NE_VOIT_PAS) and time.monotonic() - self._dernier_renvoi_image > 30:
+            self._dernier_renvoi_image = time.monotonic()
+            log.warning("[Vidéo]  il dit ne pas voir l'écran : je lui renvoie l'image et il recommence")
+            self._file_envoi.put_nowait(("texte", "[Système] Tu reçois bien la vidéo de son écran : voici "
+                                                  "l'image actuelle. Réponds de nouveau à sa dernière demande.", False))
         if moi:
             log.info("[Moi]    %s", moi)
         if lui and not silence:
@@ -707,6 +748,28 @@ class CompagnonLive:
         self._fin_parole = time.monotonic()
         self._file_envoi.put_nowait(("texte", texte, False))
 
+    # ------------------------------------------------------------------ capteur (mod)
+    async def _boucle_capteur(self) -> None:
+        """Lit l'état exact du jeu 2 fois par seconde et lance les alertes."""
+        precedent = None
+        while True:
+            await asyncio.sleep(0.5)
+            etat = await asyncio.to_thread(self.capteur.lire)
+            if (etat is not None) != self._capteur_actif:
+                self._capteur_actif = etat is not None
+                if etat is not None:
+                    log.info("[Capteur] mod détecté : il connaît maintenant ta vie, les monstres autour, le biome…")
+                else:
+                    log.info("[Capteur] plus de données du mod (jeu fermé ou mod absent)")
+                precedent = None
+            if etat is None:
+                continue
+            for alerte in self._alertes.detecter(precedent, etat):
+                log.info("[Alerte] %s", alerte)
+                self._fin_parole = time.monotonic()
+                self._file_envoi.put_nowait(("texte", f"[Alerte] {alerte}", False, True))
+            precedent = etat
+
     # ------------------------------------------------------------------ commentaires spontanés
     def _occupe(self) -> str | None:
         if self._pousse:
@@ -729,6 +792,8 @@ class CompagnonLive:
         while True:
             await asyncio.sleep(3)
             if not self.cfg.commentaires_spontanes or self._session is None or self._occupe():
+                continue
+            if self.capteur.menu_ou_pause:
                 continue
             if not self.mode_test and not jeu_au_premier_plan(self.cfg.fenetre_minecraft):
                 continue
