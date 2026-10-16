@@ -9,8 +9,10 @@ from tests.faux import FausseCapture, FausseSynthese, FauxCerveau, FauxLecteur, 
 
 
 def creer(cerveau=None, lecteur=None, **reglages):
-    return Compagnon(config_test(**reglages), cerveau=cerveau or FauxCerveau(), synthese=FausseSynthese(),
-                     lecteur=lecteur or FauxLecteur(), micro=FauxMicro(), capture=FausseCapture())
+    c = Compagnon(config_test(**reglages), cerveau=cerveau or FauxCerveau(), synthese=FausseSynthese(),
+                  lecteur=lecteur or FauxLecteur(), micro=FauxMicro(), capture=FausseCapture())
+    c.micro_actif = True  # comme si le micro s'était ouvert au démarrage
+    return c
 
 
 async def attendre_tour(c):
@@ -58,7 +60,8 @@ class TestPushToTalk(unittest.TestCase):
         async def scenario():
             c = creer(FauxCerveau(["Une longue réponse qui prend son temps pour venir, vraiment."], delai=0.02))
             await c.soumettre(Demande("voix", "A"))
-            await asyncio.sleep(0.05)
+            while not c.cerveau.entrees:  # la réponse à A a commencé
+                await asyncio.sleep(0.01)
             premier = c._tour
             demande_b = asyncio.create_task(c.soumettre(Demande("voix", "B")))
             await asyncio.sleep(0)
@@ -83,6 +86,21 @@ class TestPushToTalk(unittest.TestCase):
 
         c = asyncio.run(scenario())
         self.assertEqual(c.cerveau.entrees, [])
+
+
+class TestMicroIndisponible(unittest.TestCase):
+    def test_appui_sans_micro_previent_sans_planter(self):
+        async def scenario():
+            c = creer()
+            c.micro_actif, c.erreur_micro = False, "accès refusé"
+            with self.assertLogs("compagnon", level="WARNING") as journaux:
+                c._appui()
+            c._relache()
+            return c, journaux
+
+        c, journaux = asyncio.run(scenario())
+        self.assertFalse(c.micro.enregistre)
+        self.assertIn("accès refusé", journaux.output[0])
 
 
 class TestLecteur(unittest.TestCase):

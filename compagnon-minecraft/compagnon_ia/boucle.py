@@ -70,6 +70,7 @@ class Compagnon:
         self.capture = capture
         self.touche: ToucheParler | None = None
         self.micro_actif = False
+        self.erreur_micro = ""
 
         self._boucle: asyncio.AbstractEventLoop | None = None
         self._tour: asyncio.Task | None = None
@@ -131,21 +132,34 @@ class Compagnon:
                             "Lance « python compagnon.py --modeles » et corrige config.toml.", modele)
 
     def _demarrer_micro(self) -> None:
+        # Micro et touche sont indépendants : même sans micro, la touche est surveillée pour pouvoir
+        # dire clairement ce qui ne va pas au moment où tu appuies.
         try:
             self.micro.demarrer()
+            self.micro_actif = True
+        except Exception as e:
+            self.erreur_micro = str(e)
+            log.error("[Micro]  IMPOSSIBLE D'OUVRIR LE MICRO : %s", e)
+            log.error("         -> Paramètres Windows > Confidentialité et sécurité > Microphone : active "
+                      "« Accès au microphone » ET « Autoriser les applications de bureau à accéder au microphone ».")
+            log.error("         -> Ou choisis le bon micro : python compagnon.py --peripheriques, puis « micro » "
+                      "dans config.toml.")
+        try:
             self.touche = ToucheParler(self.cfg.touche, self._depuis_thread(self._appui),
                                        self._depuis_thread(self._relache))
             self.touche.demarrer()
-            self.micro_actif = True
         except Exception as e:
-            log.error("[Micro]  push-to-talk indisponible : %s", e)
-            log.error("         Tu peux quand même écrire tes phrases dans cette console (puis Entrée).")
+            self.touche = None
+            log.error("[Touche] impossible de surveiller la touche push-to-talk : %s", e)
+        if not self.micro_actif or self.touche is None:
+            log.error("         En attendant, tu peux écrire tes phrases dans cette console (puis Entrée).")
 
     def _afficher_accueil(self) -> None:
         log.info("=" * 70)
         log.info("Compagnon prêt%s.", " (MODE TEST)" if self.mode_test else "")
-        if self.micro_actif:
-            log.info("  Parler       : maintiens %s", self.touche.description())
+        if self.touche is not None:
+            log.info("  Parler       : maintiens %s%s", self.touche.description(),
+                     "" if self.micro_actif else "   (MAIS LE MICRO NE MARCHE PAS, voir plus haut)")
             log.info("                 (« [Micro] j'écoute… » doit s'afficher ; sinon : python compagnon.py --diagnostic)")
         log.info("  Clavier      : tape une phrase ici puis Entrée pour lui parler par écrit")
         log.info("  Modèles      : %s (voix -> texte), %s (vision)",
@@ -195,6 +209,10 @@ class Compagnon:
 
     def _appui(self) -> None:
         if self._enregistre:  # répétition automatique de la touche
+            return
+        if not self.micro_actif:
+            log.warning("[Micro]  touche détectée, mais le micro ne s'est pas ouvert (%s). Vérifie les "
+                        "autorisations micro de Windows, puis relance.", self.erreur_micro)
             return
         if self.lecteur.parle or (self._tour and not self._tour.done()):
             log.info("[Micro]  (je me tais)")
