@@ -11,14 +11,22 @@
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import atexit
-import logging
-import logging.handlers
-import queue
-import sys
-from pathlib import Path
+import os
+
+# À faire AVANT d'importer numpy : par défaut, sa bibliothèque de calcul (OpenBLAS) réserve un gros bloc de
+# mémoire par cœur de processeur. Avec Minecraft ouvert, Windows peut refuser et tout s'arrête avec
+# « Memory allocation still failed after 10 retries, giving up ». Un seul cœur suffit largement ici.
+for _variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_variable, "1")
+
+import argparse  # noqa: E402
+import asyncio  # noqa: E402
+import atexit  # noqa: E402
+import logging  # noqa: E402
+import logging.handlers  # noqa: E402
+import queue  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 if sys.version_info < (3, 11):
     sys.exit("Python 3.11 ou plus récent est nécessaire (tu as " + sys.version.split()[0] + ").")

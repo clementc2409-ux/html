@@ -333,6 +333,7 @@ la liste de ce qu'il faut corriger.
 | « le modèle … n'apparaît pas » | `python compagnon.py --modeles`, puis corrige `config.toml`. |
 | « je n'ai rien entendu » | Autorisation micro (étape 3 e), ou mauvais micro : `--peripheriques`, puis réglage `micro`. |
 | Un bouton de souris ne fait rien | Ta souris envoie peut-être x2 au lieu de x1. Essaie `souris:x2`, ou garde la touche V. |
+| « Memory allocation still failed after 10 retries » | Mémoire saturée (souvent Minecraft qui a trop de RAM allouée). Corrigé dans le code depuis le 16/10 ; sinon tape une fois `setx OPENBLAS_NUM_THREADS 1` puis rouvre le terminal. Évite d'allouer à Minecraft plus de la moitié de ta RAM. |
 | « IMPOSSIBLE D'OUVRIR LE MICRO » | Paramètres Windows > Système > Son > Entrée : un micro doit être choisi et sa barre doit bouger quand tu parles. Puis `--peripheriques` et réglage `micro` (numéro du micro). |
 | Pas de son | Vérifie la sortie par défaut de Windows ou le réglage `sortie_audio`. edge-tts a besoin d'Internet. |
 | « synthèse impossible » | Pas d'accès Internet à Microsoft (pare-feu, VPN) ou nom de voix erroné. |
