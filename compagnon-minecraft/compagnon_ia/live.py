@@ -32,12 +32,16 @@ VIDEO_MAX_SANS_ENVOI = 10.0  # même si l'écran ne bouge pas, une image toutes 
 RESOLUTIONS = {"basse": "MEDIA_RESOLUTION_LOW", "moyenne": "MEDIA_RESOLUTION_MEDIUM",
                "haute": "MEDIA_RESOLUTION_HIGH"}
 
-COUP_D_OEIL = ("[Coup d'œil] Regarde les dernières images. Ne parle que s'il se passe quelque chose de nouveau ou "
-               "d'intéressant depuis ton dernier commentaire ; sinon ne dis absolument rien.")
+COUP_D_OEIL = ("[Coup d'œil] Regarde l'image la plus récente, elle vient d'arriver. Ne parle que s'il se passe "
+               "quelque chose de nouveau ou d'intéressant depuis ton dernier commentaire ; sinon ne dis absolument rien.")
+# Temps laissé au modèle pour « voir » la capture fraîche avant de recevoir la question (l'ordre n'est pas garanti).
+DELAI_IMAGE = 0.4
 
 CONSIGNES_LIVE = """\
 ## Ce que tu reçois
-- La vidéo de son écran de Minecraft, en continu (environ une image par seconde) : c'est ce qu'il voit en ce moment.
+- La vidéo de son écran de Minecraft, en continu (environ une image par seconde). Les images arrivent dans l'ordre :
+  base-toi TOUJOURS sur la plus récente, c'est ce qu'il voit maintenant ; les précédentes montrent le passé.
+  Une capture fraîche arrive juste avant chacune de ses questions.
 - Sa voix quand il te parle.
 - Des messages texte :
   « [Événement] … » : un événement détecté dans le journal du jeu (mort, progrès…). Réagis-y tout de suite.
@@ -82,10 +86,13 @@ def construire_config(types, cfg: Config, consignes: str, handle: str | None = N
         # La connexion est coupée toutes les ~10 minutes : on la reprend avec ce « ticket ».
         "session_resumption": types.SessionResumptionConfig(handle=handle),
     }
+    # Toutes les images envoyées depuis la dernière réponse comptent, pas seulement celles reçues pendant que
+    # tu parles (sinon il répondait en regardant de vieilles images).
+    entree = {"turn_coverage": types.TurnCoverage.TURN_INCLUDES_ALL_INPUT}
     if not cfg.micro_continu:
         # Push-to-talk : c'est nous qui disons quand tu commences et finis de parler.
-        reglages["realtime_input_config"] = types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(disabled=True))
+        entree["automatic_activity_detection"] = types.AutomaticActivityDetection(disabled=True)
+    reglages["realtime_input_config"] = types.RealtimeInputConfig(**entree)
     if not minimale:
         if cfg.proactivite:  # lui permet de rester silencieux quand il n'a rien d'intéressant à dire
             reglages["proactivity"] = types.ProactivityConfig(proactive_audio=True)
@@ -208,6 +215,7 @@ class CompagnonLive:
         self._empreinte_coup_d_oeil = None
         self._dernier_spontane = float("-inf")
         self._fin_parole = float("-inf")
+        self.delai_image = DELAI_IMAGE
 
     # ------------------------------------------------------------------ démarrage / arrêt
     async def tourner(self) -> None:
@@ -398,6 +406,8 @@ class CompagnonLive:
                 elif genre == "debut":
                     if await self._envoyer(activity_start=types.ActivityStart()):
                         self._activite_ouverte = True
+                        # Capture de l'écran au moment où tu commences à parler (en parallèle du son).
+                        self._lancer(self._envoyer_image_fraiche())
                         while self._preroll:
                             await self._envoyer(audio=types.Blob(data=self._preroll.popleft(),
                                                                  mime_type=self._mime_audio))
@@ -411,6 +421,8 @@ class CompagnonLive:
                     self._porte = PorteSilenceLive() if spontane else None
                     if entourer:
                         await self._envoyer(activity_start=types.ActivityStart())
+                    if await self._envoyer_image_fraiche():  # il voit l'écran actuel avant la question
+                        await asyncio.sleep(self.delai_image)
                     if not await self._envoyer(text=texte):
                         log.warning("[Gemini] pas connecté pour l'instant : message non transmis.")
                     if entourer:
@@ -420,10 +432,38 @@ class CompagnonLive:
             except Exception as e:
                 log.debug("[Gemini] envoi impossible : %s", e)
 
-    async def _boucle_video(self) -> None:
-        """Envoie la fenêtre de Minecraft (1 image/s au plus), seulement quand elle change."""
+    def _lancer(self, travail) -> None:
+        self._taches = [t for t in self._taches if not t.done()]
+        self._taches.append(asyncio.create_task(travail))
+
+    async def _envoyer_image(self, image, emp=None) -> bool:
         from google.genai import types
 
+        jpeg = await asyncio.to_thread(encoder_jpeg, image, self.cfg.largeur_video, 80)
+        try:
+            envoye = await self._envoyer(video=types.Blob(data=jpeg, mime_type="image/jpeg"))
+        except Exception as e:
+            log.debug("[Gemini] image non envoyée : %s", e)
+            return False
+        if envoye:
+            self._derniere_empreinte_video = emp if emp is not None else empreinte(image)
+            self._t_derniere_video = time.monotonic()
+            if self.fichier_capture is not None:
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(self.fichier_capture.write_bytes, jpeg)
+        return envoye
+
+    async def _envoyer_image_fraiche(self) -> bool:
+        """Capture et envoie l'écran tout de suite (quand tu parles, avant un coup d'œil ou un événement)."""
+        try:
+            image = await asyncio.to_thread(self.capture.capturer)
+        except Exception as e:
+            log.debug("[Regard] capture impossible : %s", e)
+            return False
+        return await self._envoyer_image(image)
+
+    async def _boucle_video(self) -> None:
+        """Envoie la fenêtre de Minecraft (1 image/s au plus), seulement quand elle change."""
         while True:
             await asyncio.sleep(1.0 / self.cfg.images_par_seconde)
             if self._session is None:
@@ -441,17 +481,7 @@ class CompagnonLive:
                     and difference(emp, self._derniere_empreinte_video) < 0.01
                     and maintenant - self._t_derniere_video < VIDEO_MAX_SANS_ENVOI):
                 continue  # écran figé (pause) : inutile de renvoyer la même image
-            jpeg = await asyncio.to_thread(encoder_jpeg, image, self.cfg.largeur_video, 80)
-            try:
-                envoye = await self._envoyer(video=types.Blob(data=jpeg, mime_type="image/jpeg"))
-            except Exception as e:
-                log.debug("[Gemini] image non envoyée : %s", e)
-                continue
-            if envoye:
-                self._derniere_empreinte_video, self._t_derniere_video = emp, maintenant
-                if self.fichier_capture is not None:
-                    with contextlib.suppress(OSError):
-                        await asyncio.to_thread(self.fichier_capture.write_bytes, jpeg)
+            await self._envoyer_image(image, emp)
 
     # ------------------------------------------------------------------ réception
     def _traiter(self, message) -> None:

@@ -25,6 +25,7 @@ def creer(**reglages):
                       client=object())
     c.micro_actif = True
     c.fichier_capture = None
+    c.delai_image = 0
     c._session = FausseSession()
     return c
 
@@ -44,10 +45,15 @@ SON = (np.ones(2400) * 1000).astype(np.int16).tobytes()  # 0,1 s de son à 24 kH
 
 
 async def vider_file(c):
+    """Laisse la tâche d'envoi tout traiter (captures fraîches comprises), puis l'arrête."""
     tache = asyncio.create_task(c._boucle_envoi())
-    while not c._file_envoi.empty():
-        await asyncio.sleep(0.01)
-    await asyncio.sleep(0.01)
+    calme, dernier = 0, -1
+    while calme < 15:  # 15 × 20 ms sans nouvel envoi, file vide
+        await asyncio.sleep(0.02)
+        n = len(c._session.envois)
+        calme, dernier = (calme + 1, n) if c._file_envoi.empty() and n == dernier else (0, n)
+    for travail in c._taches:
+        await travail
     tache.cancel()
 
 
@@ -58,13 +64,15 @@ class TestConfiguration(unittest.TestCase):
         self.assertEqual(config.response_modalities, [types.Modality.AUDIO])
         self.assertEqual(config.speech_config.voice_config.prebuilt_voice_config.voice_name, "Algenib")
         self.assertTrue(config.realtime_input_config.automatic_activity_detection.disabled)
+        self.assertEqual(config.realtime_input_config.turn_coverage, types.TurnCoverage.TURN_INCLUDES_ALL_INPUT)
         self.assertIsNotNone(config.context_window_compression.sliding_window)
         self.assertTrue(config.proactivity.proactive_audio)
         self.assertEqual(config.media_resolution, types.MediaResolution.MEDIA_RESOLUTION_MEDIUM)
 
     def test_config_micro_continu_et_minimale(self):
         config = construire_config(types, config_test(micro_continu=True), "c", handle="abc", minimale=True)
-        self.assertIsNone(config.realtime_input_config)
+        self.assertIsNone(config.realtime_input_config.automatic_activity_detection)
+        self.assertEqual(config.realtime_input_config.turn_coverage, types.TurnCoverage.TURN_INCLUDES_ALL_INPUT)
         self.assertIsNone(config.proactivity)
         self.assertIsNone(config.media_resolution)
         self.assertEqual(config.session_resumption.handle, "abc")
@@ -89,8 +97,11 @@ class TestEnvoi(unittest.TestCase):
             await vider_file(c)
             return [cle if cle != "audio" else ("audio", v.data) for cle, v in c._session.envois]
 
-        self.assertEqual(asyncio.run(scenario()),
+        envois = asyncio.run(scenario())
+        self.assertIn("video", envois)  # capture fraîche au moment où tu parles
+        self.assertEqual([e for e in envois if e != "video"],
                          ["activity_start", ("audio", b"avant"), ("audio", b"pendant"), "activity_end"])
+        self.assertLess(envois.index("activity_start"), envois.index("video"))
 
     def test_evenement_envoye_comme_texte_entoure(self):
         from compagnon_ia.journal_jeu import EvenementJeu
@@ -102,8 +113,9 @@ class TestEnvoi(unittest.TestCase):
             return c._session.envois
 
         envois = asyncio.run(scenario())
-        self.assertEqual([cle for cle, _ in envois], ["activity_start", "text", "activity_end"])
-        self.assertIn("vient de mourir", envois[1][1])
+        self.assertEqual([cle for cle, _ in envois], ["activity_start", "video", "text", "activity_end"])
+        self.assertEqual(envois[1][1].mime_type, "image/jpeg")
+        self.assertIn("vient de mourir", envois[2][1])
 
     def test_micro_continu_sans_signaux(self):
         async def scenario():
@@ -113,7 +125,7 @@ class TestEnvoi(unittest.TestCase):
             await vider_file(c)
             return [cle for cle, _ in c._session.envois]
 
-        self.assertEqual(asyncio.run(scenario()), ["audio", "text"])
+        self.assertEqual(asyncio.run(scenario()), ["audio", "video", "text"])
 
 
 class TestReception(unittest.TestCase):
