@@ -10,3 +10,5 @@ derniere_capture.jpg
 souvenirs.json
 souvenirs.tmp
 exemples/faux_etat.json
+mod/build/
+mod/.gradle/
