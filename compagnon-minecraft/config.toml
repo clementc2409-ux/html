@@ -1,0 +1,122 @@
+# =====================================================================
+#  Configuration du compagnon Minecraft
+#  Les lignes qui commencent par # sont des commentaires.
+#  Le texte va entre guillemets "…" ; true/false et les nombres sans guillemets.
+# =====================================================================
+
+[groq]
+# Clé API Groq. CONSEILLÉ : laisse vide et définis plutôt la variable
+# d'environnement GROQ_API_KEY (voir README). Si tu la mets ici, ne partage
+# jamais ce fichier et ne le publie pas sur GitHub.
+cle_api = ""
+
+# Modèle de transcription (voix -> texte). Vérifié le 16/10/2026 :
+#   "whisper-large-v3-turbo" : rapide, conseillé
+#   "whisper-large-v3"       : un peu plus précis, un peu plus lent
+modele_transcription = "whisper-large-v3-turbo"
+
+# Modèle de chat qui accepte les images (vision). Vérifié le 16/10/2026 :
+#   "qwen/qwen3.8-27b" (modèle en « preview » chez Groq).
+# Les noms changent souvent : « python compagnon.py --modeles » affiche la liste actuelle.
+modele_vision = "qwen/qwen3.8-27b"
+
+# Réflexion du modèle avant de répondre :
+#   "none" = pas de réflexion (le plus rapide, conseillé pour parler en direct)
+#   "low", "medium", "high" = réfléchit d'abord (plus lent, consomme plus de jetons)
+#   ""     = ne pas envoyer ce réglage (si tu changes pour un modèle qui ne le connaît pas)
+effort_raisonnement = "none"
+
+# Créativité des réponses (0 = sage et répétitif, 1 = plus varié).
+temperature = 0.8
+
+# Longueur maximale d'une réponse, en jetons (~100 jetons ≈ 3 phrases courtes).
+max_jetons_reponse = 160
+
+
+[parole]
+# Touche à MAINTENIR pour parler (push-to-talk) :
+#   Souris  : "souris:x1" (bouton latéral arrière), "souris:x2" (latéral avant), "souris:milieu"
+#   Clavier : "clavier:v", "clavier:f8", "clavier:alt_r" (Alt droite), "clavier:ctrl_r",
+#             "clavier:caps_lock", "clavier:insert"…
+touche = "souris:x1"
+
+# Micro : "" = micro par défaut de Windows. Sinon son numéro ou une partie de son nom,
+# par ex. "Casque" (liste : python compagnon.py --peripheriques).
+micro = ""
+
+# Langue parlée (code ISO à 2 lettres).
+langue = "fr"
+
+# Mots que la transcription doit bien reconnaître (noms propres, vocabulaire du jeu…).
+vocabulaire = "Conversation en français pendant une partie de Minecraft : creeper, zombie, squelette, Enderman, Nether, l'End, redstone, minerai, diamant, netherite, village, château, royaume, seigneur."
+
+
+[voix]
+# Voix edge-tts (gratuite). Voix françaises masculines : "fr-FR-HenriNeural",
+# "fr-FR-RemyMultilingualNeural", "fr-CA-AntoineNeural", "fr-CA-ThierryNeural", "fr-BE-GerardNeural".
+voix = "fr-FR-HenriNeural"
+
+# Vitesse et volume de la voix, en pourcentage ("+10%", "-5%"…).
+debit = "+5%"
+volume = "+0%"
+
+# Sortie audio : "" = sortie par défaut de Windows (mets ton casque par défaut !),
+# sinon numéro ou partie du nom (python compagnon.py --peripheriques).
+sortie_audio = ""
+
+
+[jeu]
+# Ton pseudo Minecraft exact (sert à reconnaître TES morts et TES succès dans le journal).
+pseudo = ""
+
+# Journal du jeu, lu en temps réel. %APPDATA% est remplacé automatiquement.
+# Avec un autre launcher (CurseForge, Prism, Modrinth…), mets le dossier « logs » de ton instance.
+chemin_log = '%APPDATA%\.minecraft\logs\latest.log'
+
+# Écris ce mot au début d'un message du chat du jeu pour parler au compagnon par écrit.
+mot_cle_chat = "@compagnon"
+
+
+[regard]
+# Commentaires spontanés (il regarde l'écran de lui-même) : true ou false.
+commentaires_spontanes = true
+
+# Une capture toutes les N secondes pour un éventuel commentaire spontané.
+intervalle_capture = 20
+
+# Au moins N secondes entre deux commentaires spontanés prononcés
+# (tes questions, elles, ont toujours une réponse immédiate).
+cooldown_spontane = 45
+
+# Différence minimale entre deux captures pour en envoyer une nouvelle (0 à 1).
+# 0.04 = 4 % : un écran figé (jeu en pause) n'est pas envoyé.
+seuil_changement = 0.04
+
+# Pas de commentaire spontané si la fenêtre au premier plan ne contient pas ce texte
+# dans son titre (ex. quand tu es sur le bureau). "" = ne pas vérifier.
+fenetre_minecraft = "Minecraft"
+
+# Écran à capturer : 1 = écran principal, 2 = deuxième écran…, 0 = tous les écrans.
+ecran = 1
+
+# Taille et qualité des images envoyées (plus petit = plus rapide et moins de jetons).
+largeur_image = 768
+qualite_jpeg = 70
+
+
+[memoire]
+# Nombre de derniers échanges gardés en mémoire (tes phrases, ses réponses, les événements).
+echanges = 10
+
+
+[budget]
+# Quota de jetons par jour de ton offre Groq (gratuite : voir console.groq.com/settings/limits).
+# Au-delà de 80 % de ce quota, plus de commentaires spontanés : le reste est gardé pour tes questions.
+# Mets 0 pour ne pas surveiller.
+jetons_par_jour = 200000
+
+# Jetons par heure que les commentaires spontanés ont le droit de consommer.
+# 40000 ≈ un commentaire spontané envoyé toutes les 3-4 minutes en moyenne :
+# de quoi tenir environ 3 h de jeu par jour avec l'offre gratuite.
+# Si ton quota est plus large, augmente cette valeur.
+jetons_spontanes_par_heure = 40000

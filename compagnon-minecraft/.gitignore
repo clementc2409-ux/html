@@ -1,0 +1,8 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Données personnelles / locales
+.consommation_groq.json
+exemples/faux_latest.log
