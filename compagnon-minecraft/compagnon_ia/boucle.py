@@ -160,7 +160,9 @@ class Compagnon:
 
     def _afficher_accueil(self) -> None:
         log.info("=" * 70)
-        log.info("Compagnon prêt%s.", " (MODE TEST)" if self.mode_test else "")
+        from . import VERSION
+
+        log.info("Compagnon prêt — moteur Groq%s — version %s.", " (MODE TEST)" if self.mode_test else "", VERSION)
         if self.touche is not None:
             log.info("  Parler       : maintiens %s%s", self.touche.description(),
                      "" if self.micro_actif else "   (MAIS LE MICRO NE MARCHE PAS, voir plus haut)")

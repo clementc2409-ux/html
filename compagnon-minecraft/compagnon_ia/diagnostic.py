@@ -316,7 +316,9 @@ def tester_touche(cfg: Config) -> None:
 
 
 async def diagnostiquer(cfg: Config) -> int:
-    print(f"Autodiagnostic du compagnon (moteur {cfg.moteur}). Mets ton casque.")
+    from . import VERSION
+
+    print(f"Autodiagnostic du compagnon (moteur {cfg.moteur}, version {VERSION}). Mets ton casque.")
     print(f"Python {sys.version.split()[0]}")
     if cfg.moteur == "gemini":
         image = await asyncio.to_thread(tester_capture, cfg)

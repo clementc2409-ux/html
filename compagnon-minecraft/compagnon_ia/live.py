@@ -17,6 +17,7 @@ from collections import deque
 
 import numpy as np
 
+from . import VERSION
 from .audio import Micro
 from .capture import CaptureEcran, CaptureTest, difference, empreinte, encoder_jpeg, jeu_au_premier_plan
 from .cerveau import GUIDE_ECRAN
@@ -216,6 +217,8 @@ class CompagnonLive:
         self._dernier_spontane = float("-inf")
         self._fin_parole = float("-inf")
         self.delai_image = DELAI_IMAGE
+        self._etat_video: str | None = None
+        self._images_envoyees = 0
 
     # ------------------------------------------------------------------ démarrage / arrêt
     async def tourner(self) -> None:
@@ -268,7 +271,8 @@ class CompagnonLive:
 
     def _afficher_accueil(self) -> None:
         log.info("=" * 70)
-        log.info("Compagnon prêt — moteur Gemini Live%s.", " (MODE TEST)" if self.mode_test else "")
+        log.info("Compagnon prêt — moteur Gemini Live%s — version %s.",
+                 " (MODE TEST)" if self.mode_test else "", VERSION)
         if self.cfg.micro_continu:
             log.info("  Parler       : micro ouvert en continu, parle quand tu veux")
         elif self.touche is not None:
@@ -407,7 +411,7 @@ class CompagnonLive:
                     if await self._envoyer(activity_start=types.ActivityStart()):
                         self._activite_ouverte = True
                         # Capture de l'écran au moment où tu commences à parler (en parallèle du son).
-                        self._lancer(self._envoyer_image_fraiche())
+                        self._lancer(self._envoyer_image_fraiche("ta question"))
                         while self._preroll:
                             await self._envoyer(audio=types.Blob(data=self._preroll.popleft(),
                                                                  mime_type=self._mime_audio))
@@ -421,7 +425,8 @@ class CompagnonLive:
                     self._porte = PorteSilenceLive() if spontane else None
                     if entourer:
                         await self._envoyer(activity_start=types.ActivityStart())
-                    if await self._envoyer_image_fraiche():  # il voit l'écran actuel avant la question
+                    raison = "coup d'œil" if spontane else "message"
+                    if await self._envoyer_image_fraiche(raison):  # il voit l'écran actuel avant le texte
                         await asyncio.sleep(self.delai_image)
                     if not await self._envoyer(text=texte):
                         log.warning("[Gemini] pas connecté pour l'instant : message non transmis.")
@@ -436,6 +441,16 @@ class CompagnonLive:
         self._taches = [t for t in self._taches if not t.done()]
         self._taches.append(asyncio.create_task(travail))
 
+    def _signaler_video(self, etat: str, niveau: int = logging.INFO) -> None:
+        """Affiche l'état de la vidéo seulement quand il change (pas une ligne par seconde)."""
+        if etat != self._etat_video:
+            if etat == "ok":
+                if self._etat_video is not None:
+                    log.info("[Vidéo]  la vidéo repart normalement")
+            else:
+                log.log(niveau, "[Vidéo]  %s", etat)
+            self._etat_video = etat
+
     async def _envoyer_image(self, image, emp=None) -> bool:
         from google.genai import types
 
@@ -443,9 +458,13 @@ class CompagnonLive:
         try:
             envoye = await self._envoyer(video=types.Blob(data=jpeg, mime_type="image/jpeg"))
         except Exception as e:
-            log.debug("[Gemini] image non envoyée : %s", e)
+            self._signaler_video(f"image non envoyée à Gemini : {e}", logging.WARNING)
             return False
         if envoye:
+            self._images_envoyees += 1
+            if self._images_envoyees == 1:
+                log.info("[Vidéo]  première image envoyée (%d×%d, %d Ko) : il voit ton écran",
+                         image.width, image.height, len(jpeg) // 1024)
             self._derniere_empreinte_video = emp if emp is not None else empreinte(image)
             self._t_derniere_video = time.monotonic()
             if self.fichier_capture is not None:
@@ -453,14 +472,19 @@ class CompagnonLive:
                     await asyncio.to_thread(self.fichier_capture.write_bytes, jpeg)
         return envoye
 
-    async def _envoyer_image_fraiche(self) -> bool:
+    async def _envoyer_image_fraiche(self, raison: str) -> bool:
         """Capture et envoie l'écran tout de suite (quand tu parles, avant un coup d'œil ou un événement)."""
         try:
             image = await asyncio.to_thread(self.capture.capturer)
         except Exception as e:
-            log.debug("[Regard] capture impossible : %s", e)
+            log.warning("[Vidéo]  capture IMPOSSIBLE pour %s : %s", raison, e)
             return False
-        return await self._envoyer_image(image)
+        envoye = await self._envoyer_image(image)
+        if envoye:
+            log.info("[Vidéo]  écran capturé et envoyé avec %s", raison)
+        elif self._session is None:
+            log.warning("[Vidéo]  capture non envoyée (%s) : pas connecté à Gemini pour l'instant", raison)
+        return envoye
 
     async def _boucle_video(self) -> None:
         """Envoie la fenêtre de Minecraft (1 image/s au plus), seulement quand elle change."""
@@ -469,12 +493,15 @@ class CompagnonLive:
             if self._session is None:
                 continue
             if not self.mode_test and not jeu_au_premier_plan(self.cfg.fenetre_minecraft):
+                self._signaler_video("en pause : la fenêtre au premier plan n'est pas Minecraft "
+                                     "(normal si tu es sur le bureau ou dans ce terminal)")
                 continue
             try:
                 image = await asyncio.to_thread(self.capture.capturer)
             except Exception as e:
-                log.debug("[Regard] capture impossible : %s", e)
+                self._signaler_video(f"capture IMPOSSIBLE : {e}", logging.WARNING)
                 continue
+            self._signaler_video("ok")
             maintenant = time.monotonic()
             emp = empreinte(image)
             if (self._derniere_empreinte_video is not None
