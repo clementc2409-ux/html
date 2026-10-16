@@ -34,14 +34,15 @@ max_jetons_reponse = 160
 
 
 [parole]
-# Touche à MAINTENIR pour parler (push-to-talk) :
+# Touche à MAINTENIR pour parler (push-to-talk). Elle marche même quand tu es dans Minecraft.
+#   Clavier : "clavier:v" (par défaut, V ne sert pas dans Minecraft), "clavier:b", "clavier:f8",
+#             "clavier:alt_r" (Alt droite), "clavier:ctrl_r", "clavier:insert"…
 #   Souris  : "souris:x1" (bouton latéral arrière), "souris:x2" (latéral avant), "souris:milieu"
-#   Clavier : "clavier:v", "clavier:f8", "clavier:alt_r" (Alt droite), "clavier:ctrl_r",
-#             "clavier:caps_lock", "clavier:insert"…
-touche = "souris:x1"
+#   Pour connaître le nom d'une touche ou d'un bouton : python compagnon.py --diagnostic
+touche = "clavier:v"
 
-# Micro : "" = micro par défaut de Windows. Sinon son numéro ou une partie de son nom,
-# par ex. "Casque" (liste : python compagnon.py --peripheriques).
+# Micro : "" = micro par défaut de Windows (s'il ne s'ouvre pas, les autres micros sont essayés).
+# Sinon son numéro ou une partie de son nom, par ex. "Casque" (liste : python compagnon.py --peripheriques).
 micro = ""
 
 # Langue parlée (code ISO à 2 lettres).

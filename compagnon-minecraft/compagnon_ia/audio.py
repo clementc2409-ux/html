@@ -38,24 +38,62 @@ class Micro:
         self._verrou = threading.Lock()
         self._flux = None
 
+    FREQUENCE_VOULUE = 16_000
+    # Entrées qui ne sont pas de vrais micros (elles enregistrent le son de l'ordinateur).
+    EXCLUS = ("mixage", "stereo mix", "stéréo", "what u hear", "loopback", "wave out")
+
     def demarrer(self) -> None:
+        """Ouvre le micro choisi (ou celui par défaut). Si le micro par défaut refuse de s'ouvrir,
+        essaie les autres micros de l'ordinateur et prévient lequel est utilisé."""
         import sounddevice as sd
 
-        try:
-            self._ouvrir(sd, self.frequence)
-        except Exception:
-            # Certains micros refusent 16 kHz : on prend leur fréquence native (Groq rééchantillonne).
-            infos = sd.query_devices(self.peripherique, "input")
-            self._ouvrir(sd, int(infos["default_samplerate"]))
-        log.debug("Micro ouvert à %d Hz", self.frequence)
+        candidats = [self.peripherique]
+        if self.peripherique is None:
+            candidats += self._autres_micros(sd)
+        premiere_erreur = None
+        for peripherique in candidats:
+            for frequence in (self.FREQUENCE_VOULUE, None):
+                try:
+                    if frequence is None:
+                        # Certains micros refusent 16 kHz : on prend leur fréquence native (Groq rééchantillonne).
+                        frequence = int(sd.query_devices(peripherique, "input")["default_samplerate"])
+                    self._ouvrir(sd, peripherique, frequence)
+                except Exception as e:
+                    premiere_erreur = premiere_erreur or e
+                    continue
+                if peripherique != candidats[0]:
+                    log.warning("[Micro]  le micro par défaut ne s'ouvre pas (%s) : j'utilise « %s ».",
+                                premiere_erreur, self.nom())
+                log.debug("Micro ouvert à %d Hz", self.frequence)
+                return
+        raise premiere_erreur or RuntimeError("aucun micro trouvé sur cet ordinateur")
 
-    def _ouvrir(self, sd, frequence: int) -> None:
+    @classmethod
+    def _autres_micros(cls, sd) -> list[int]:
+        try:
+            peripheriques, apis = sd.query_devices(), sd.query_hostapis()
+        except Exception:
+            return []
+        return [i for i, p in enumerate(peripheriques)
+                if p["max_input_channels"] > 0
+                and "WDM-KS" not in apis[p["hostapi"]]["name"]
+                and not any(motif in p["name"].lower() for motif in cls.EXCLUS)]
+
+    def _ouvrir(self, sd, peripherique, frequence: int) -> None:
         flux = sd.InputStream(
-            samplerate=frequence, channels=1, dtype="int16", device=self.peripherique,
+            samplerate=frequence, channels=1, dtype="int16", device=peripherique,
             blocksize=int(frequence * self.BLOC), callback=self._rappel,
         )
         flux.start()
-        self._flux, self.frequence = flux, frequence
+        self._flux, self.peripherique, self.frequence = flux, peripherique, frequence
+
+    def nom(self) -> str:
+        try:
+            import sounddevice as sd
+
+            return sd.query_devices(self.peripherique, "input")["name"]
+        except Exception:
+            return "?"
 
     def _rappel(self, donnees, _frames, _temps, _statut) -> None:
         bloc = donnees[:, 0].copy()

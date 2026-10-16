@@ -29,7 +29,7 @@ class Config:
     temperature: float = 0.8
     max_jetons_reponse: int = 160
     # [parole]
-    touche: str = "souris:x1"
+    touche: str = "clavier:v"
     micro: str = ""
     langue: str = "fr"
     vocabulaire: str = ""

@@ -160,6 +160,8 @@ class Compagnon:
         if self.touche is not None:
             log.info("  Parler       : maintiens %s%s", self.touche.description(),
                      "" if self.micro_actif else "   (MAIS LE MICRO NE MARCHE PAS, voir plus haut)")
+        if self.micro_actif:
+            log.info("  Micro        : %s", getattr(self.micro, "nom", lambda: "?")())
             log.info("                 (« [Micro] j'écoute… » doit s'afficher ; sinon : python compagnon.py --diagnostic)")
         log.info("  Clavier      : tape une phrase ici puis Entrée pour lui parler par écrit")
         log.info("  Modèles      : %s (voix -> texte), %s (vision)",

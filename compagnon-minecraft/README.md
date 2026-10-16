@@ -116,7 +116,7 @@ Ouvre `config.toml` avec le Bloc-notes. Chaque réglage est expliqué en comment
 
 | Réglage | Par défaut | À quoi ça sert |
 |---|---|---|
-| `touche` | `"souris:x1"` | Touche à maintenir pour parler. `souris:x1` est le bouton latéral arrière, `souris:x2` l'avant. Exemples clavier : `clavier:v`, `clavier:f8`, `clavier:alt_r`. |
+| `touche` | `"clavier:v"` | Touche à maintenir pour parler (V par défaut ; elle marche aussi quand tu es dans Minecraft). Autres exemples : `clavier:b`, `clavier:alt_r`, `souris:x1` (bouton latéral arrière), `souris:x2` (avant). |
 | `micro` / `sortie_audio` | `""` | Périphériques audio (vide = ceux par défaut de Windows). Liste : `python compagnon.py --peripheriques`. |
 | `voix` | `"fr-FR-HenriNeural"` | Voix du compagnon. Pour d'autres voix : `edge-tts --list-voices`. |
 | `modele_vision` | `"qwen/qwen3.8-27b"` | Modèle Groq qui voit l'écran. |
@@ -184,7 +184,7 @@ parler par écrit : pratique pour tester sans micro.
 
 1. **Casque sur les oreilles** (voir conseils plus bas), puis lance `python compagnon.py --test`.
 2. Vérifie la console : aucun message « indisponible », et « Compagnon prêt (MODE TEST) ».
-3. **Maintiens le bouton latéral de la souris**, dis « Salut, tu vois quoi là ? », relâche.
+3. **Maintiens la touche V**, dis « Salut, tu vois quoi là ? », relâche.
    - Tu dois voir `[Moi]` avec ta phrase, puis `[Lui]` avec sa réponse, et l'entendre.
    - Il doit parler de l'image d'exemple (prairie, creeper, grotte, château : une nouvelle image à chaque question).
    - Regarde la ligne « voix lancée X s après ta phrase ». L'objectif est 2 à 3 s.
@@ -267,7 +267,7 @@ bureau : plus rien non plus. Si tu le trouves trop bavard, augmente `cooldown_sp
   limite les dégâts, mais un casque est bien plus confortable.
 - **Minecraft en mode fenêtré ou plein écran « sans bordure »** si la capture est noire. Le plein
   écran exclusif peut empêcher la capture.
-- Choisis une touche push-to-talk **qui ne sert pas dans le jeu**. Les boutons latéraux de souris
+- Choisis une touche push-to-talk **qui ne sert pas dans le jeu** (V par défaut). Les boutons latéraux de souris
   ne sont pas utilisés par défaut dans Minecraft.
 - La première réponse après le lancement peut être un peu plus lente (connexions à établir).
 
@@ -308,7 +308,8 @@ la liste de ce qu'il faut corriger.
 | « clé API refusée » | Clé mal copiée ou supprimée : crées-en une nouvelle. |
 | « le modèle … n'apparaît pas » | `python compagnon.py --modeles`, puis corrige `config.toml`. |
 | « je n'ai rien entendu » | Autorisation micro (étape 3 e), ou mauvais micro : `--peripheriques`, puis réglage `micro`. |
-| La touche souris ne fait rien | Ta souris envoie peut-être x2 au lieu de x1. Essaie `souris:x2` ou une touche clavier. |
+| Un bouton de souris ne fait rien | Ta souris envoie peut-être x2 au lieu de x1. Essaie `souris:x2`, ou garde la touche V. |
+| « IMPOSSIBLE D'OUVRIR LE MICRO » | Paramètres Windows > Système > Son > Entrée : un micro doit être choisi et sa barre doit bouger quand tu parles. Puis `--peripheriques` et réglage `micro` (numéro du micro). |
 | Pas de son | Vérifie la sortie par défaut de Windows ou le réglage `sortie_audio`. edge-tts a besoin d'Internet. |
 | « synthèse impossible » | Pas d'accès Internet à Microsoft (pare-feu, VPN) ou nom de voix erroné. |
 | Capture noire | Mode fenêtré / sans bordure, et vérifie le réglage `ecran`. |

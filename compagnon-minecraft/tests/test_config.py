@@ -12,7 +12,7 @@ class TestConfig(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GROQ_API_KEY": "cle-env"}):
             cfg = charger_config(RACINE / "config.toml")
         self.assertEqual(cfg.cle_api, "cle-env")
-        self.assertEqual(cfg.touche, "souris:x1")
+        self.assertEqual(cfg.touche, "clavier:v")
         self.assertEqual(cfg.intervalle_capture, 20.0)
         self.assertTrue(cfg.commentaires_spontanes)
 
